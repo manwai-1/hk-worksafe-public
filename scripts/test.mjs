@@ -126,6 +126,65 @@ if (monthCounts["2026-09"].incident !== 1 || monthCounts["2026-09"].prosecution 
   fail("2026-09 月份筆數不符 " + JSON.stringify(monthCounts["2026-09"]));
 }
 
+const periodSource = read("src/lib/period.ts");
+const chartsSource = read("src/components/Charts.tsx");
+const registerSource = read("src/components/RegisterSection.tsx");
+
+function quotedList(source, name) {
+  const start = source.indexOf(`export const ${name}`);
+  if (start < 0) {
+    fail("找不到 " + name);
+    return [];
+  }
+  const slice = source.slice(start, source.indexOf("] as const", start));
+  return [...slice.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+
+const chartMonths = quotedList(periodSource, "CHART_MONTHS");
+const tableMonths = quotedList(periodSource, "TABLE_MONTHS");
+if (chartMonths.join(",") !== MONTHS.join(",")) fail("趨勢圖月份不是由早到晚：" + chartMonths.join(","));
+if (tableMonths.join(",") !== [...MONTHS].reverse().join(",")) fail("月份表不是由近到遠：" + tableMonths.join(","));
+if (chartMonths.join(",") === tableMonths.join(",")) fail("圖與表共用同一月份順序");
+
+const filterBlock = periodSource.slice(
+  periodSource.indexOf("export const MONTH_FILTER_OPTIONS"),
+  periodSource.indexOf("export const CHART_MONTHS"),
+);
+const filterValues = [...filterBlock.matchAll(/value: "(\d{2})"/g)].map((match) => match[1]);
+const filterLabels = [...filterBlock.matchAll(/label: "(\d+)"/g)].map((match) => match[1]);
+const expectedValues = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+const expectedLabels = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+if (filterValues.join(",") !== expectedValues.join(",")) fail("月份選單值不是 01 至 12：" + filterValues.join(","));
+if (filterLabels.join(",") !== expectedLabels.join(",")) fail("月份選單標籤不是 1 至 12：" + filterLabels.join(","));
+if (registerSource.includes("Object.entries") || registerSource.includes("Object.keys") || registerSource.includes("MONTH_LABELS")) {
+  fail("月份選單仍依物件鍵列舉");
+}
+if (!registerSource.includes("MONTH_FILTER_OPTIONS.map") || !registerSource.includes(">全部月份<")) {
+  fail("月份選單未以全部月份開頭並使用固定清單");
+}
+
+const chartMarkup = chartsSource.slice(chartsSource.indexOf('className="chart"'), chartsSource.indexOf('className="data-table"'));
+const tableMarkup = chartsSource.slice(chartsSource.indexOf("<tbody>"), chartsSource.indexOf("</tbody>"));
+if (!chartMarkup.includes("CHART_MONTHS.map") || chartMarkup.includes("TABLE_MONTHS")) fail("趨勢圖未保持由早到晚的橫軸");
+if (!tableMarkup.includes("TABLE_MONTHS.map") || tableMarkup.includes("CHART_MONTHS")) fail("月份表未使用獨立的由近到遠清單");
+if (!chartsSource.includes("此表不是政府官方統計")) fail("月份表說明被改掉");
+
+function recordsInMonth(month) {
+  return data.records.filter((record) => periodOf(record.datetime).endsWith("-" + month));
+}
+const march = recordsInMonth("03");
+const november = recordsInMonth("11");
+const october = recordsInMonth("10");
+if (march.length === 0 || november.length === 0 || october.length === 0) fail("月份篩選樣本為空");
+if (march.some((record) => !periodOf(record.datetime).endsWith("-03"))) fail("三月篩選夾入其他月份");
+if (!november.some((record) => periodOf(record.datetime).startsWith("2025-")) || !november.some((record) => periodOf(record.datetime).startsWith("2026-"))) {
+  fail("十一月篩選未同時包含 2025 與 2026");
+}
+if (november.some((record) => periodOf(record.datetime).endsWith("-10"))) fail("十一月篩選夾入十月");
+if (march.length + november.length + october.length !== new Set([...march, ...november, ...october].map((record) => record.id)).size) {
+  fail("月份篩選樣本互相重疊");
+}
+
 const shatin = data.records.find((record) => record.id === "2026-11-05-shatin");
 const tungchung = data.records.find((record) => record.id === "2026-10-07-tungchung");
 const wangfuk = data.records.find((record) => record.id === "2025-11-26-highly-concerned-about-no-5-alarm-fire-at-wang-f");
