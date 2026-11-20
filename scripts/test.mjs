@@ -128,7 +128,9 @@ if (monthCounts["2026-09"].incident !== 1 || monthCounts["2026-09"].prosecution 
 
 const periodSource = read("src/lib/period.ts");
 const chartsSource = read("src/components/Charts.tsx");
-const registerSource = read("src/components/RegisterSection.tsx");
+const registerSource = read("src/components/RegisterLayer.tsx");
+const appSource = read("src/App.tsx");
+const followSource = read("src/components/FollowLayer.tsx");
 
 function quotedList(source, name) {
   const start = source.indexOf(`export const ${name}`);
@@ -141,10 +143,11 @@ function quotedList(source, name) {
 }
 
 const chartMonths = quotedList(periodSource, "CHART_MONTHS");
-const tableMonths = quotedList(periodSource, "TABLE_MONTHS");
 if (chartMonths.join(",") !== MONTHS.join(",")) fail("趨勢圖月份不是由早到晚：" + chartMonths.join(","));
-if (tableMonths.join(",") !== [...MONTHS].reverse().join(",")) fail("月份表不是由近到遠：" + tableMonths.join(","));
-if (chartMonths.join(",") === tableMonths.join(",")) fail("圖與表共用同一月份順序");
+if (chartsSource.includes(".reverse(") || chartsSource.includes("TABLE_MONTHS")) fail("趨勢圖反轉了月份陣列");
+if (!chartsSource.includes("CHART_MONTHS.map")) fail("趨勢圖未按時間順序繪製");
+const categoryOrder = [...chartsSource.matchAll(/\.sort\(\(a, b\) => b\.value - a\.value\)/g)];
+if (categoryOrder.length !== 1) fail("類別圖未按筆數由大至小排列");
 
 const filterBlock = periodSource.slice(
   periodSource.indexOf("export const MONTH_FILTER_OPTIONS"),
@@ -162,12 +165,18 @@ if (registerSource.includes("Object.entries") || registerSource.includes("Object
 if (!registerSource.includes("MONTH_FILTER_OPTIONS.map") || !registerSource.includes(">全部月份<")) {
   fail("月份選單未以全部月份開頭並使用固定清單");
 }
-
-const chartMarkup = chartsSource.slice(chartsSource.indexOf('className="chart"'), chartsSource.indexOf('className="data-table"'));
-const tableMarkup = chartsSource.slice(chartsSource.indexOf("<tbody>"), chartsSource.indexOf("</tbody>"));
-if (!chartMarkup.includes("CHART_MONTHS.map") || chartMarkup.includes("TABLE_MONTHS")) fail("趨勢圖未保持由早到晚的橫軸");
-if (!tableMarkup.includes("TABLE_MONTHS.map") || tableMarkup.includes("CHART_MONTHS")) fail("月份表未使用獨立的由近到遠清單");
-if (!chartsSource.includes("此表不是政府官方統計")) fail("月份表說明被改掉");
+if (!read("src/content.ts").includes("資料截止：2026-11-20 08:59 香港時間 · 收錄 85 筆") || !appSource.includes("HEADER_LINE")) {
+  fail("頁首截止列缺失");
+}
+if (!appSource.includes(">說明<") || !appSource.includes("免責說明")) fail("說明或免責說明缺失");
+if (!appSource.includes("關注與跟進") || !appSource.includes("按類別查看") || !appSource.includes("完整登記冊")) fail("層級分頁缺失");
+if (appSource.includes("形態歸類") || followSource.includes("形態歸類")) fail("仍使用舊層級名稱");
+if (!followSource.includes("近期關注") || !followSource.includes("其後發展") || !followSource.includes("致命意外")) fail("關注層分段缺失");
+if (!followSource.includes("已有安全提示") || !followSource.includes("尚無職安警示")) fail("關注標示缺失");
+if (!registerSource.includes("顯示英文原文") || !registerSource.includes("const PAGE_SIZE = 15")) {
+  fail("登記冊英文開關或分頁缺失");
+}
+if (!registerSource.includes("查看詳情 ›")) fail("缺少查看詳情");
 
 function recordsInMonth(month) {
   return data.records.filter((record) => periodOf(record.datetime).endsWith("-" + month));
@@ -196,10 +205,34 @@ if (!shatin.updatesEn.length || !tungchung.updatesEn.length || !wangfuk.updatesE
 const named = data.records.find((record) => record.id === "2026-09-09-wangfuk");
 if (named?.sourceNote !== "官方中文公報未點名被告人，亦未報道判決。") fail("宏福苑檢控來源說明不符");
 
-const joined = JSON.stringify(data) + read("src/App.tsx") + read("src/content.ts") + read("src/components/FollowUp.tsx") + read("src/components/RecordCard.tsx") + read("src/components/Charts.tsx");
-if (joined.includes("檨控") || joined.includes("此策")) fail("出現錯字");
-for (const phrase of ["此冊不是政府刊物", "來源說明", "Legal reference（英文原文）", "（英文原文）", "已有安全提示（並非職安警示）", "不是政府官方統計", "2026年11月20日 08:59（香港時間）"]) {
+const ui = [
+  "src/App.tsx",
+  "src/content.ts",
+  "src/components/Charts.tsx",
+  "src/components/FollowLayer.tsx",
+  "src/components/PatternLayer.tsx",
+  "src/components/RegisterLayer.tsx",
+  "src/lib/period.ts",
+].map((name) => read(name)).join("\n");
+const joined = JSON.stringify(data) + ui;
+if (joined.includes("檨控") || joined.includes("此策") || ui.includes("已關連警示") || ui.includes("無相關警示") || ui.includes("條例／規則") || ui.includes("全部 official")) {
+  fail("出現禁用字句");
+}
+for (const phrase of ["此冊不是政府刊物", "來源說明", "Legal reference（英文原文）", "（英文原文）", "已有安全提示（並非職安警示）", "不是政府官方統計", "2026-11-20 08:59 香港時間"]) {
   if (!joined.includes(phrase)) fail("缺少字句：" + phrase);
+}
+const { dateShort } = await import("../src/lib/period.ts");
+const shortCases = [
+  ["September 2026 (month only, as stated on the official alert)", "2026年9月（僅註明月份）"],
+  ["2026-11-05, morning (HKT)", "2026-11-05 上午"],
+  ["2026-10-07, afternoon (HKT)", "2026-10-07 下午"],
+  ["2026-11-11 (HKT; time of day not stated)", "2026-11-11（時間未註明）"],
+  ["2026-07-31, 09:00 HKT (issued time stated on the press release)", "2026-07-31 09:00"],
+  ["2026-05-22 (HKT; Gazette date as stated on later official pages; no same-day Government press release was found)", "2026-05-22（憲報日期）"],
+  ["2026-08-27 (announced); enhancement effective 2026-08-28 (HKT; time of day not stated)", "2026-08-27（公布）；2026-08-28 起生效（時間未註明）"],
+];
+for (const [input, expected] of shortCases) {
+  if (dateShort(input) !== expected) fail(`短日期 ${input} => ${dateShort(input)}，應為 ${expected}`);
 }
 if (!read("vite.config.ts").includes('base: "/hk-worksafe-public/"')) fail("Pages base path 不正確");
 const workflow = read(".github/workflows/pages.yml");

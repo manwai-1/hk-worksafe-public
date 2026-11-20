@@ -44,22 +44,6 @@ export const CHART_MONTHS = [
   "2026-11",
 ] as const;
 
-export const TABLE_MONTHS = [
-  "2026-11",
-  "2026-10",
-  "2026-09",
-  "2026-08",
-  "2026-07",
-  "2026-06",
-  "2026-05",
-  "2026-04",
-  "2026-03",
-  "2026-02",
-  "2026-01",
-  "2025-12",
-  "2025-11",
-] as const;
-
 export function recordPeriod(datetime: string): { year: string; month: string } | null {
   const iso = datetime.match(/^(\d{4})-(\d{2})/);
   if (iso) return { year: iso[1], month: iso[2] };
@@ -98,4 +82,29 @@ export function dateLabel(datetime: string): string {
 export function monthAxisLabel(key: string): string {
   const [year, month] = key.split("-");
   return `${year}年${Number(month)}月`;
+}
+
+export function dateShort(datetime: string): string {
+  const named = datetime.match(
+    /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i,
+  );
+  if (named) {
+    const month = MONTH_FROM_NAME[named[1].toLowerCase()];
+    return named[2] + "年" + (month ? Number(month) + "月" : named[1]) + "（僅註明月份）";
+  }
+  const announced = datetime.match(
+    /^(\d{4}-\d{2}-\d{2})\s*\(announced\);\s*enhancement effective\s*(\d{4}-\d{2}-\d{2})/i,
+  );
+  if (announced) {
+    return announced[1] + "（公布）；" + announced[2] + " 起生效（時間未註明）";
+  }
+  const iso = datetime.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!iso) return datetime;
+  if (/Gazette date/i.test(datetime)) return iso[1] + "（憲報日期）";
+  const clock = datetime.match(/^\d{4}-\d{2}-\d{2},\s*(\d{1,2}:\d{2})\s*HKT/i);
+  if (clock) return iso[1] + " " + clock[1];
+  if (/\bmorning\b/i.test(datetime)) return iso[1] + " 上午";
+  if (/\bafternoon\b/i.test(datetime)) return iso[1] + " 下午";
+  if (/time of day not stated/i.test(datetime)) return iso[1] + "（時間未註明）";
+  return iso[1];
 }
