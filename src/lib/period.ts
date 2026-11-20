@@ -13,20 +13,20 @@ const MONTH_FROM_NAME: Record<string, string> = {
   december: "12",
 };
 
-export const MONTH_LABELS: Record<string, string> = {
-  "01": "一月",
-  "02": "二月",
-  "03": "三月",
-  "04": "四月",
-  "05": "五月",
-  "06": "六月",
-  "07": "七月",
-  "08": "八月",
-  "09": "九月",
-  "10": "十月",
-  "11": "十一月",
-  "12": "十二月",
-};
+export const MONTH_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: "01", label: "1" },
+  { value: "02", label: "2" },
+  { value: "03", label: "3" },
+  { value: "04", label: "4" },
+  { value: "05", label: "5" },
+  { value: "06", label: "6" },
+  { value: "07", label: "7" },
+  { value: "08", label: "8" },
+  { value: "09", label: "9" },
+  { value: "10", label: "10" },
+  { value: "11", label: "11" },
+  { value: "12", label: "12" },
+];
 
 export const CHART_MONTHS = [
   "2025-11",
@@ -42,6 +42,22 @@ export const CHART_MONTHS = [
   "2026-09",
   "2026-10",
   "2026-11",
+] as const;
+
+export const TABLE_MONTHS = [
+  "2026-11",
+  "2026-10",
+  "2026-09",
+  "2026-08",
+  "2026-07",
+  "2026-06",
+  "2026-05",
+  "2026-04",
+  "2026-03",
+  "2026-02",
+  "2026-01",
+  "2025-12",
+  "2025-11",
 ] as const;
 
 export function recordPeriod(datetime: string): { year: string; month: string } | null {

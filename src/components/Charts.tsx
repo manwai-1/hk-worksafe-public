@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { CHART_CAPTION } from "../content";
 import { RECORDS } from "../data";
-import { CHART_MONTHS, monthAxisLabel, recordPeriod } from "../lib/period";
+import { CHART_MONTHS, TABLE_MONTHS, monthAxisLabel, recordPeriod } from "../lib/period";
 import type { PatternGroup } from "../types";
 
 const SERIES = [
@@ -80,7 +80,7 @@ export function Charts({ groups }: { groups: PatternGroup[] }) {
           </tr>
         </thead>
         <tbody>
-          {CHART_MONTHS.map((key) => (
+          {TABLE_MONTHS.map((key) => (
             <tr key={key}>
               <th scope="row">{monthAxisLabel(key)}</th>
               <td>{monthChart.counts[key].incident}</td>

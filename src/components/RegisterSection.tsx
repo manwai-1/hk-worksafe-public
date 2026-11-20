@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { STATUS_OPTIONS, TYPE_LABEL, TYPE_OPTIONS } from "../content";
 import { RECORDS, hasDatedUpdate } from "../data";
-import { MONTH_LABELS, inPeriod, recordPeriod } from "../lib/period";
+import { MONTH_FILTER_OPTIONS, inPeriod, recordPeriod } from "../lib/period";
 import type { OshRecord, PatternGroup } from "../types";
 import { RecordCard } from "./RecordCard";
 
@@ -118,9 +118,9 @@ export function RegisterSection({
           月份
           <select value={monthFilter} onChange={(event) => onMonth(event.target.value)}>
             <option value="all">全部月份</option>
-            {Object.entries(MONTH_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
+            {MONTH_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
