@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { dateFragments } from "./period";
 
 const URL_PATTERN = /https?:\/\/[^\s<>「」『』]+/g;
 
@@ -10,6 +11,19 @@ function trimTrailingPunctuation(url: string): { href: string; rest: string } {
     href = href.slice(0, -1);
   }
   return { href, rest };
+}
+
+export function DateText({ value }: { value: string }) {
+  const parts = dateFragments(value);
+  return (
+    <span className="date-value">
+      {parts.map((part, index) => (
+        <span key={`${part.kind}-${index}`} className={part.kind === "token" ? "date-token" : "date-note"}>
+          {part.text}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export function LinkText({ text }: { text: string }) {

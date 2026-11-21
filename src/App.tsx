@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Charts } from "./components/Charts";
 import { FollowLayer } from "./components/FollowLayer";
 import { PatternLayer } from "./components/PatternLayer";
@@ -97,14 +97,30 @@ export default function App() {
         <details className="disclaimer">
           <summary>免責說明</summary>
           <div className="disclaimer-body">
+            <h2>資料截止</h2>
             <p>
               {CUTOFF} 此冊是資料匯編，不是政府刊物，亦不是法律意見。
             </p>
+            <h2>本冊數目</h2>
             <p>{CHART_CAPTION}</p>
+            <h2>各層範圍</h2>
             <p>{LAYER_NOTE}</p>
-            {SCOPE_PARAGRAPHS.map((paragraph) => (
-              <p key={paragraph.slice(0, 24)}>{paragraph}</p>
-            ))}
+            {SCOPE_PARAGRAPHS.map((paragraph, index) => {
+              const heading = [
+                "收錄經過",
+                "職安警示與安全提示",
+                "法例、規例、工作守則及指引",
+                "職業安全健康局",
+                "香港法例與政府憲報",
+              ][index];
+              return (
+                <Fragment key={paragraph.slice(0, 24)}>
+                  {heading ? <h2>{heading}</h2> : null}
+                  <p>{paragraph}</p>
+                </Fragment>
+              );
+            })}
+            <h2>紀錄編列</h2>
             <p>{RECORD_RULE}</p>
             <h2>來源網址</h2>
             <ul className="links">
@@ -205,18 +221,20 @@ export default function App() {
           />
         ) : null}
       </main>
-      <button
-        type="button"
-        className="to-top"
-        onClick={() =>
-          window.scrollTo({
-            top: 0,
-            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-          })
-        }
-      >
-        回到頂部
-      </button>
+      <div className="to-top-slot">
+        <button
+          type="button"
+          className="to-top"
+          onClick={() =>
+            window.scrollTo({
+              top: 0,
+              behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+            })
+          }
+        >
+          回到頂部
+        </button>
+      </div>
     </>
   );
 }

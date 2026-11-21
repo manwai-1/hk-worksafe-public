@@ -54,6 +54,7 @@ h4 { margin: 0.8rem 0 0.3rem; font-size: 0.95rem; }
 .disclaimer { margin-top: 1rem; padding: 0.2rem 1rem; }
 .disclaimer summary { cursor: pointer; padding: 0.75rem 0; font-weight: 650; font-size: 1.05rem; }
 .disclaimer-body { padding-bottom: 0.8rem; }
+.disclaimer-body h2 { margin: 0.85rem 0 0.15rem; }
 .disclaimer-body p { margin: 0.55rem 0; }
 
 .kpi { margin: 1rem 0; padding: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: stretch; }
@@ -79,6 +80,7 @@ h4 { margin: 0.8rem 0 0.3rem; font-size: 0.95rem; }
 .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; margin: 0.9rem 0 1rem; }
 .card { padding: 0.95rem 1rem 1rem; min-width: 0; }
 .card h2 { margin-bottom: 0.6rem; }
+.chart-cue { margin: 0 0 0.45rem; font-size: 0.82rem; }
 .chart-scroll { overflow-x: auto; max-width: 100%; }
 .chart { display: flex; align-items: flex-end; gap: 0.35rem; min-width: 36rem; height: 12.5rem; border-bottom: 1px solid var(--line); }
 .month-col { flex: 1; min-width: 2.4rem; height: 100%; display: flex; flex-direction: column; }
@@ -154,6 +156,9 @@ input[type="search"], select {
   color: #475569;
   white-space: nowrap;
 }
+.stack-label { display: none; }
+.stack-title { display: block; width: 100%; min-width: 0px; overflow: visible; }
+.date-token, .type-token, .stack-action { white-space: nowrap; }
 .pill-warning { background: var(--warn-bg); color: var(--warn); }
 .pill-accent { background: var(--soft); color: var(--accent-deep); }
 .thread { border-top: 1px solid var(--line); }
@@ -179,11 +184,8 @@ input[type="search"], select {
 .links li { padding: 0.15rem 0; }
 .pager { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .empty { padding: 0.4rem 0 1rem; }
+.to-top-slot { width: min(var(--max), calc(100% - 2rem)); margin: 0.4rem auto 1.4rem; }
 .to-top {
-  position: fixed;
-  left: 0.8rem;
-  bottom: 0.8rem;
-  z-index: 15;
   background: #fff;
   border-color: var(--line);
   box-shadow: var(--shadow);
@@ -195,6 +197,47 @@ p, a, dd { overflow-wrap: break-word; }
 @media (max-width: 860px) {
   .chart-grid { grid-template-columns: 1fr; }
   .props div { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+  .table-scroll:has(.stack-table) { overflow-x: visible; }
+  .stack-table,
+  .stack-table tbody,
+  .stack-table caption { display: block; width: 100%; }
+  .stack-table thead { display: none; }
+  .stack-table tr {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin: 0.55rem 0;
+    padding: 0.35rem 0.75rem 0.55rem;
+    box-sizing: border-box;
+  }
+  .stack-table td {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    padding: 0.28rem 0;
+    box-sizing: border-box;
+  }
+  .stack-table td[data-stack="title"] { order: 1; }
+  .stack-table td[data-stack="date"] { order: 2; }
+  .stack-table td[data-stack="type"] { order: 3; }
+  .stack-table td[data-stack="mark"] { order: 4; }
+  .stack-table td[data-stack="action"] { order: 5; }
+  .stack-label { display: block; color: var(--muted); font-size: 0.78rem; font-weight: 650; }
+  .to-top, .detail-toggle, .stack-action {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

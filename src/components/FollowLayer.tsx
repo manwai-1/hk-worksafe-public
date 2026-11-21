@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { THREAD_STATUS_OPTIONS, TYPE_LABEL } from "../content";
 import { BY_ID, RECORDS, data } from "../data";
 import { dateLabel, dateShort } from "../lib/period";
+import { DateText } from "../lib/text";
 import type { FollowThread, OshRecord } from "../types";
 import { TitleMark } from "./marks";
+import { StackRecordTable } from "./RecordTable";
 
 const NO_ALERT_IDS = new Set(["2026-11-05-shatin", "2026-10-07-tungchung"]);
 
@@ -93,7 +95,7 @@ export function FollowLayer({ onOpen }: { onOpen: (id: string) => void }) {
           近期關注
         </h2>
         <label className="field">
-          關鍵字搜尋
+          搜尋近期關注的標題或地點
           <input
             type="search"
             value={noAlertQuery}
@@ -104,41 +106,50 @@ export function FollowLayer({ onOpen }: { onOpen: (id: string) => void }) {
         {watchRows.length === 0 ? (
           <p>沒有符合的紀錄。</p>
         ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <caption>近期關注：登記冊已載明尚未見對應職安警示的個案。</caption>
-              <thead>
-                <tr>
-                  <th scope="col">日期</th>
-                  <th scope="col">類型</th>
-                  <th scope="col">官方中文標題</th>
-                  <th scope="col">標示</th>
-                  <th scope="col">紀錄</th>
-                </tr>
-              </thead>
-              <tbody>
-                {watchRows.map((record) => (
-                  <tr key={record.id}>
-                    <td>{dateShort(record.datetime)}</td>
-                    <td>
-                      <span className="pill">{TYPE_LABEL[record.type]}</span>
-                    </td>
-                    <td>{record.titleZh}</td>
-                    <td>
-                      <span className={`pill pill-${record.id === "2026-10-07-tungchung" ? "accent" : "warning"}`}>
-                        {record.id === "2026-10-07-tungchung" ? "已有安全提示" : "尚無職安警示"}
-                      </span>
-                    </td>
-                    <td>
-                      <button type="button" className="quiet" onClick={() => onOpen(record.id)}>
-                        查看
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <StackRecordTable
+            caption="近期關注：登記冊已載明尚未見對應職安警示的個案。"
+            rows={watchRows}
+            columns={[
+              {
+                key: "date",
+                label: "日期",
+                stack: "date",
+                render: (record) => <DateText value={dateShort(record.datetime)} />,
+              },
+              {
+                key: "type",
+                label: "類型",
+                stack: "type",
+                render: (record) => <span className="pill">{TYPE_LABEL[record.type]}</span>,
+              },
+              {
+                key: "title",
+                label: "官方中文標題",
+                stack: "title",
+                render: (record) => <span className="stack-title">{record.titleZh}</span>,
+              },
+              {
+                key: "mark",
+                label: "標示",
+                stack: "mark",
+                render: (record) => (
+                  <span className={`pill pill-${record.id === "2026-10-07-tungchung" ? "accent" : "warning"}`}>
+                    {record.id === "2026-10-07-tungchung" ? "已有安全提示" : "尚無職安警示"}
+                  </span>
+                ),
+              },
+              {
+                key: "action",
+                label: "紀錄",
+                stack: "action",
+                render: (record) => (
+                  <button type="button" className="quiet stack-action" onClick={() => onOpen(record.id)}>
+                    查看
+                  </button>
+                ),
+              },
+            ]}
+          />
         )}
       </section>
 
@@ -148,7 +159,7 @@ export function FollowLayer({ onOpen }: { onOpen: (id: string) => void }) {
           其後發展
         </h2>
         <label className="field">
-          關鍵字搜尋
+          搜尋跟進發展的標題或地點
           <input
             type="search"
             value={threadQuery}

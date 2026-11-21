@@ -176,7 +176,33 @@ if (!followSource.includes("已有安全提示") || !followSource.includes("尚�
 if (!registerSource.includes("顯示英文原文") || !registerSource.includes("const PAGE_SIZE = 15")) {
   fail("登記冊英文開關或分頁缺失");
 }
-if (!registerSource.includes("查看詳情 ›")) fail("缺少查看詳情");
+if (!registerSource.includes('aria-expanded={open}')) fail("詳情開關缺少 aria-expanded");
+if (!registerSource.includes('open ? "收起詳情" : "查看詳情 ›"')) fail("詳情開關未同時標明收起與查看");
+if (registerSource.includes("查看詳情 ›") && !registerSource.includes("收起詳情")) fail("展開後仍只標查看詳情");
+if (!followSource.includes("搜尋近期關注的標題或地點") || !followSource.includes("搜尋跟進發展的標題或地點")) {
+  fail("近期與跟進搜尋標籤未分開");
+}
+if (followSource.includes("關鍵字搜尋")) fail("仍使用相同的關鍵字搜尋標籤");
+if (!followSource.includes('placeholder="地區、工程類型或事件描述"')) fail("近期或跟進的提示文字被改掉");
+if (!registerSource.includes("搜尋標題、摘要、法例編號或來源") || !registerSource.includes('placeholder="例如：沙田、第59章、宏福苑"')) {
+  fail("完整登記冊搜尋標籤或提示文字被改掉");
+}
+const chartsSourceForCue = read("src/components/Charts.tsx");
+if (!chartsSourceForCue.includes("左右滑動查看其他月份") || !chartsSourceForCue.includes('aria-labelledby="month-chart-heading"')) {
+  fail("按月分布缺少滑動提示或無障礙名稱");
+}
+if (appSource.includes("CALLOUT")) fail("未使用的 CALLOUT 被渲染");
+for (const heading of ["資料截止", "本冊數目", "各層範圍", "收錄經過", "職安警示與安全提示", "法例、規例、工作守則及指引", "職業安全健康局", "香港法例與政府憲報", "紀錄編列", "來源網址"]) {
+  if (!appSource.includes(heading)) fail("免責說明缺少分組標題：" + heading);
+}
+if (!appSource.includes("SCOPE_PARAGRAPHS.map") || !appSource.includes("RECORD_RULE") || !appSource.includes("LAYER_NOTE") || !appSource.includes("CHART_CAPTION") || !appSource.includes("{CUTOFF}")) {
+  fail("免責說明原文沒有整段保留");
+}
+const css = read("src/styles.css");
+const widths = [...css.matchAll(/max-width:\s*(\d+)px/g)].map((match) => match[1]);
+if (widths.join(",") !== "860") fail("斷點不是既有的 860：" + widths.join(","));
+if (/position:\s*fixed/.test(css)) fail("回到頂部仍用固定定位，或新增了固定定位");
+if (!css.includes(".to-top-slot") || !css.includes("min-height: 44px")) fail("回到頂部或窄屏按鈕尺寸缺失");
 
 function recordsInMonth(month) {
   return data.records.filter((record) => periodOf(record.datetime).endsWith("-" + month));
@@ -221,7 +247,7 @@ if (joined.includes("檨控") || joined.includes("此策") || ui.includes("已�
 for (const phrase of ["此冊不是政府刊物", "來源說明", "Legal reference（英文原文）", "（英文原文）", "已有安全提示（並非職安警示）", "不是政府官方統計", "2026-11-20 08:59 香港時間"]) {
   if (!joined.includes(phrase)) fail("缺少字句：" + phrase);
 }
-const { dateShort } = await import("../src/lib/period.ts");
+const { dateShort, dateFragments } = await import("../src/lib/period.ts");
 const shortCases = [
   ["September 2026 (month only, as stated on the official alert)", "2026年9月（僅註明月份）"],
   ["2026-11-05, morning (HKT)", "2026-11-05 上午"],
@@ -233,7 +259,20 @@ const shortCases = [
 ];
 for (const [input, expected] of shortCases) {
   if (dateShort(input) !== expected) fail(`短日期 ${input} => ${dateShort(input)}，應為 ${expected}`);
+  const parts = dateFragments(expected);
+  if (parts.map((part) => part.text).join("") !== expected) fail("日期拆段改變了展示字：" + expected);
 }
+for (const record of data.records) {
+  const short = dateShort(record.datetime);
+  const parts = dateFragments(short);
+  if (parts.map((part) => part.text).join("") !== short) fail("日期拆段改變了紀錄：" + record.id);
+}
+const undated = dateFragments("2026-11-11（時間未註明）");
+if (undated[0]?.text !== "2026-11-11" || undated[0]?.kind !== "token" || undated[1]?.text !== "（時間未註明）") {
+  fail("時間未註明的日期token被拆散");
+}
+const morning = dateFragments("2026-11-05 上午");
+if (morning.length !== 1 || morning[0].text !== "2026-11-05 上午" || morning[0].kind !== "token") fail("上午日期被拆開");
 if (!read("vite.config.ts").includes('base: "/hk-worksafe-public/"')) fail("Pages base path 不正確");
 const workflow = read(".github/workflows/pages.yml");
 if (!workflow.includes("actions/deploy-pages") || !workflow.includes("actions/upload-pages-artifact")) fail("Pages workflow 不完整");

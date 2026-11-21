@@ -210,8 +210,8 @@ function RegisterRow({
           <span className="short-date">{dateShort(record.datetime)}</span>
           <span className="pill">{TYPE_LABEL[record.type]}</span>
           {hasDatedUpdate(record) ? <span className="pill pill-accent">已更新</span> : null}
-          <button type="button" className="quiet" onClick={onToggle}>
-            查看詳情 ›
+          <button type="button" className="quiet detail-toggle" aria-expanded={open} onClick={onToggle}>
+            {open ? "收起詳情" : "查看詳情 ›"}
           </button>
         </div>
       </div>
