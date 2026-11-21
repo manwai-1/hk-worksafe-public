@@ -37,7 +37,8 @@ export function Charts() {
     <div className="chart-grid">
       <section className="card" aria-labelledby="month-chart-heading">
         <h2 id="month-chart-heading">按月分布</h2>
-        <div className="chart-scroll">
+        <p className="caption chart-cue">左右滑動查看其他月份</p>
+        <div className="chart-scroll" role="region" aria-labelledby="month-chart-heading" tabIndex={0}>
           <div className="chart" aria-hidden="true">
             {CHART_MONTHS.map((key) => (
               <div className="month-col" key={key}>
