@@ -1,44 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { KNOWN_TYPES, parseRecords } from "./lib/register-sources.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function read(name) {
   return fs.readFileSync(path.join(root, name), "utf8");
-}
-
-function parseRecords(markdown) {
-  const body = markdown.split(/^## Records\s*$/m)[1];
-  if (!body) throw new Error("找不到 ## Records");
-  return body
-    .split(/^### /m)
-    .filter((chunk) => chunk.trim())
-    .map((chunk) => {
-      const lines = chunk.replace(/\s+$/, "").split("\n");
-      const heading = lines[0].trim();
-      const fields = {};
-      let key = null;
-      let buf = [];
-      const flush = () => {
-        if (!key) return;
-        fields[key] = buf.join("\n").trim();
-        key = null;
-        buf = [];
-      };
-      for (const line of lines.slice(1)) {
-        const match = line.match(/^- \*\*(.+?)[:：]\*\*\s*(.*)$/);
-        if (match) {
-          flush();
-          key = match[1];
-          buf = [match[2]];
-        } else if (key) {
-          buf.push(line);
-        }
-      }
-      flush();
-      return { heading, fields };
-    });
 }
 
 function englishUpdates(fields) {
@@ -66,10 +34,16 @@ const presentation = JSON.parse(read("sources/presentation.json"));
 const zhRecords = parseRecords(read("sources/ZH_OFFICIAL_SUMMARIES.md"));
 const regRecords = parseRecords(read("sources/REGISTER.md"));
 
-if (zhRecords.length !== 85 || regRecords.length !== 85 || presentation.records.length !== 85) {
+if (zhRecords.length !== regRecords.length || regRecords.length !== presentation.records.length) {
   throw new Error(
     `紀錄數目不符：中文 ${zhRecords.length}、登記冊 ${regRecords.length}、presentation ${presentation.records.length}`,
   );
+}
+if (presentation.records.length === 0) throw new Error("沒有紀錄");
+const seenIds = new Set();
+for (const meta of presentation.records) {
+  if (seenIds.has(meta.id)) throw new Error("重複 id " + meta.id);
+  seenIds.add(meta.id);
 }
 
 const patternOf = new Map();
@@ -122,22 +96,10 @@ const records = presentation.records.map((meta, index) => {
   };
 });
 
-const typeCounts = {};
-for (const record of records) typeCounts[record.type] = (typeCounts[record.type] || 0) + 1;
-const expectedTypes = {
-  incident: 23,
-  prosecution: 31,
-  alert: 25,
-  guidance: 3,
-  "ordinance/regulation": 2,
-  "code of practice": 1,
-};
-for (const [type, count] of Object.entries(expectedTypes)) {
-  if (typeCounts[type] !== count) throw new Error(`類型數目不符：${type} ${typeCounts[type]}`);
+for (const record of records) {
+  if (!KNOWN_TYPES.has(record.type)) throw new Error("未知類型：" + record.id + " " + record.type);
 }
-const noteCount = records.filter((record) => record.sourceNote).length;
-if (noteCount !== 39) throw new Error("來源說明數目不符：" + noteCount);
-if (patternOf.size !== 85) throw new Error("形態歸類未覆蓋全部紀錄：" + patternOf.size);
+if (patternOf.size !== records.length) throw new Error("形態歸類未覆蓋全部紀錄：" + patternOf.size);
 
 const output = {
   records,

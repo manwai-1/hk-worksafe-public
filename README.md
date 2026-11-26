@@ -41,4 +41,8 @@ npm run build
 npm run preview
 ```
 
-預覽位址為 `http://127.0.0.1:4173/hk-worksafe-public/`。`npm test` 會核對 85 筆中文摘要、39 則來源說明、類型與形態數目，以及頁面免責聲明。
+預覽位址為 `http://127.0.0.1:4173/hk-worksafe-public/`。`npm test` 會核對每筆紀錄與 `sources/` 一致，包括中文摘要、來源說明、類型與形態覆蓋，以及頁面免責聲明。
+
+## 資料同步
+
+已核對的快照由 `.github/workflows/data-sync.yml` 讀取並分類，不經網頁 API，也不取代 `.github/workflows/pages.yml`。推送到 `incoming/verified` 會啟動它；另外於香港時間 10:00 與 18:00 排程，亦可手動執行。輸入、分類與合併規則見 [API_SPEC.md](API_SPEC.md)。

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assemble } from "./lib/register-sources.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (name) => fs.readFileSync(path.join(root, name), "utf8");
@@ -16,17 +17,18 @@ const regChunks = chunksOf(read("sources/REGISTER.md"));
 const failures = [];
 const fail = (message) => failures.push(message);
 
-if (data.records.length !== 85) fail("紀錄不是 85 筆");
-if (zhChunks.length !== 85 || regChunks.length !== 85) fail("來源分段不是 85");
+if (data.records.length !== zhChunks.length || zhChunks.length !== regChunks.length) {
+  fail(`來源分段與建置筆數不符：建置 ${data.records.length}、中文 ${zhChunks.length}、登記冊 ${regChunks.length}`);
+}
+const assembled = assemble({
+  register: read("sources/REGISTER.md"),
+  summaries: read("sources/ZH_OFFICIAL_SUMMARIES.md"),
+  presentation: read("sources/presentation.json"),
+});
+if (assembled.errors.length) fail(assembled.errors.join("\n"));
+if (assembled.records.length !== data.records.length) fail("分類器筆數與建置不符");
 
-const expectedTypes = {
-  incident: 23,
-  prosecution: 31,
-  alert: 25,
-  guidance: 3,
-  "ordinance/regulation": 2,
-  "code of practice": 1,
-};
+const knownTypes = ["incident", "prosecution", "alert", "guidance", "ordinance/regulation", "code of practice"];
 const typeCounts = {};
 let notes = 0;
 const ids = new Set();
@@ -60,34 +62,25 @@ for (let index = 0; index < data.records.length; index += 1) {
   }
 }
 
-for (const [type, count] of Object.entries(expectedTypes)) {
-  if (typeCounts[type] !== count) fail(`類型 ${type} 是 ${typeCounts[type]}，應為 ${count}`);
+for (const type of Object.keys(typeCounts)) {
+  if (!knownTypes.includes(type)) fail("未知類型 " + type);
 }
-if (notes !== 39) fail("來源說明是 " + notes + " 則，應為 39");
+const typeTotal = Object.values(typeCounts).reduce((sum, count) => sum + count, 0);
+if (typeTotal !== data.records.length) fail("類型合計與紀錄數目不符");
 
-const expectedPatterns = {
-  "高處墮下／棚架": 28,
-  "起重或機械": 20,
-  "車輛或倒車": 5,
-  "觸電": 3,
-  "物體倒塌或擊中": 14,
-  "火災": 2,
-  "其他": 13,
-};
+const patternLabels = ["高處墮下／棚架", "起重或機械", "車輛或倒車", "觸電", "物體倒塌或擊中", "火災", "其他"];
+if (data.patternGroups.map((group) => group.label).join("|") !== patternLabels.join("|")) {
+  fail("形態標籤或次序被改：" + data.patternGroups.map((group) => group.label).join("|"));
+}
 const grouped = new Set();
 for (const group of data.patternGroups) {
-  if (group.ids.length !== expectedPatterns[group.label]) {
-    fail(`${group.label} 是 ${group.ids.length}，應為 ${expectedPatterns[group.label]}`);
-  }
   for (const id of group.ids) {
     if (grouped.has(id)) fail("形態重複 " + id);
     grouped.add(id);
     if (!ids.has(id)) fail("形態有未知紀錄 " + id);
   }
 }
-if (grouped.size !== 85) fail("形態未覆蓋 85 筆");
-
-const MONTHS = ["2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11"];
+if (grouped.size !== data.records.length) fail("形態未覆蓋全部紀錄：" + grouped.size);
 const monthName = {
   january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
   july: "07", august: "08", september: "09", october: "10", november: "11", december: "12",
@@ -99,31 +92,15 @@ function periodOf(datetime) {
   if (!named) return null;
   return `${named[2]}-${monthName[named[1].toLowerCase()]}`;
 }
-const monthCounts = Object.fromEntries(MONTHS.map((key) => [key, { incident: 0, prosecution: 0, alert: 0 }]));
+const monthCounts = {};
 for (const record of data.records) {
-  if (!monthCounts[periodOf(record.datetime)] && ["incident", "prosecution", "alert"].includes(record.type)) {
-    fail("圖表月份無法歸入：" + record.id + " " + record.datetime);
-  }
   if (!["incident", "prosecution", "alert"].includes(record.type)) continue;
   const key = periodOf(record.datetime);
-  if (!monthCounts[key]) fail("圖表缺少月份 " + key);
-  else monthCounts[key][record.type] += 1;
-}
-const sums = { incident: 0, prosecution: 0, alert: 0 };
-for (const key of MONTHS) {
-  sums.incident += monthCounts[key].incident;
-  sums.prosecution += monthCounts[key].prosecution;
-  sums.alert += monthCounts[key].alert;
-}
-if (sums.incident !== 23 || sums.prosecution !== 31 || sums.alert !== 25) fail("月份合計與類型數目不符 " + JSON.stringify(sums));
-if (monthCounts["2026-11"].incident !== 1 || monthCounts["2026-11"].prosecution !== 3 || monthCounts["2026-11"].alert !== 0) {
-  fail("2026-11 月份筆數不符 " + JSON.stringify(monthCounts["2026-11"]));
-}
-if (monthCounts["2026-10"].incident !== 1 || monthCounts["2026-10"].prosecution !== 3 || monthCounts["2026-10"].alert !== 0) {
-  fail("2026-10 月份筆數不符 " + JSON.stringify(monthCounts["2026-10"]));
-}
-if (monthCounts["2026-09"].incident !== 1 || monthCounts["2026-09"].prosecution !== 5 || monthCounts["2026-09"].alert !== 1) {
-  fail("2026-09 月份筆數不符 " + JSON.stringify(monthCounts["2026-09"]));
+  if (!key) fail("圖表月份無法歸入：" + record.id + " " + record.datetime);
+  else {
+    if (!monthCounts[key]) monthCounts[key] = { incident: 0, prosecution: 0, alert: 0 };
+    monthCounts[key][record.type] += 1;
+  }
 }
 
 const periodSource = read("src/lib/period.ts");
@@ -143,7 +120,17 @@ function quotedList(source, name) {
 }
 
 const chartMonths = quotedList(periodSource, "CHART_MONTHS");
-if (chartMonths.join(",") !== MONTHS.join(",")) fail("趨勢圖月份不是由早到晚：" + chartMonths.join(","));
+const sums = { incident: 0, prosecution: 0, alert: 0 };
+for (const [key, counts] of Object.entries(monthCounts)) {
+  if (!chartMonths.includes(key)) fail("圖表缺少月份 " + key);
+  sums.incident += counts.incident;
+  sums.prosecution += counts.prosecution;
+  sums.alert += counts.alert;
+}
+if (sums.incident !== (typeCounts.incident || 0) || sums.prosecution !== (typeCounts.prosecution || 0) || sums.alert !== (typeCounts.alert || 0)) {
+  fail("月份合計與類型數目不符 " + JSON.stringify(sums));
+}
+if (chartMonths.join(",") !== [...chartMonths].sort().join(",")) fail("趨勢圖月份不是由早到晚：" + chartMonths.join(","));
 if (chartsSource.includes(".reverse(") || chartsSource.includes("TABLE_MONTHS")) fail("趨勢圖反轉了月份陣列");
 if (!chartsSource.includes("CHART_MONTHS.map")) fail("趨勢圖未按時間順序繪製");
 const categoryOrder = [...chartsSource.matchAll(/\.sort\(\(a, b\) => b\.value - a\.value\)/g)];
@@ -165,14 +152,20 @@ if (registerSource.includes("Object.entries") || registerSource.includes("Object
 if (!registerSource.includes("MONTH_FILTER_OPTIONS.map") || !registerSource.includes(">全部月份<")) {
   fail("月份選單未以全部月份開頭並使用固定清單");
 }
-if (!read("src/content.ts").includes("資料截止：2026-11-20 08:59 香港時間 · 收錄 85 筆") || !appSource.includes("HEADER_LINE")) {
+const zhHead = read("sources/ZH_OFFICIAL_SUMMARIES.md").split(/^## Records\s*$/m)[0];
+const cutoffLine = (zhHead.match(/^\*\*資料截止時間：\*\*\s*(.*)$/m) || [])[1]?.trim();
+const coverageLine = (zhHead.match(/^\*\*涵蓋範圍：\*\*\s*(.*)$/m) || [])[1]?.trim();
+const headerLine = `資料截止：${cutoffLine} · 收錄 ${data.records.length} 筆`;
+if (!read("src/content.ts").includes(headerLine) || !appSource.includes("HEADER_LINE")) {
   fail("頁首截止列缺失");
 }
+if (!cutoffLine || !read("src/content.ts").includes(`涵蓋範圍：${coverageLine}`)) fail("免責截止涵蓋範圍缺失");
 if (!appSource.includes(">說明<") || !appSource.includes("免責說明")) fail("說明或免責說明缺失");
 if (!appSource.includes("關注與跟進") || !appSource.includes("按類別查看") || !appSource.includes("完整登記冊")) fail("層級分頁缺失");
 if (appSource.includes("形態歸類") || followSource.includes("形態歸類")) fail("仍使用舊層級名稱");
 if (!followSource.includes("近期關注") || !followSource.includes("其後發展") || !followSource.includes("致命意外")) fail("關注層分段缺失");
 if (!followSource.includes("已有安全提示") || !followSource.includes("尚無職安警示")) fail("關注標示缺失");
+if (!registerSource.includes("全部 {RECORDS.length} 筆官方紀錄")) fail("登記冊總數仍寫死");
 if (!registerSource.includes("顯示英文原文") || !registerSource.includes("const PAGE_SIZE = 15")) {
   fail("登記冊英文開關或分頁缺失");
 }
@@ -308,5 +301,5 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("核對通過：85 筆、來源說明 39 則、類型與形態數目、月份合計、三筆更新、免責聲明與 base path。");
+console.log(`核對通過：${data.records.length} 筆、來源說明 ${notes} 則、類型與形態覆蓋、月份合計、三筆更新、免責聲明與 base path。`);
 console.log(JSON.stringify(monthCounts));
