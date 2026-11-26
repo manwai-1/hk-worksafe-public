@@ -3,7 +3,7 @@
   --bg: #f4f7fb;
   --paper: #ffffff;
   --ink: #0f172a;
-  --muted: #64748b;
+  --muted: #637289;
   --line: #e2e8f0;
   --accent: #3b82f6;
   --accent-deep: #1d4ed8;
@@ -114,7 +114,7 @@ h4 { margin: 0.8rem 0 0.3rem; font-size: 0.95rem; }
 }
 .layer-tabs button { font-weight: 550; }
 .layer-tabs button.is-on, .segmented button.is-on, .quiet.is-on {
-  background: var(--accent);
+  background: var(--accent-deep);
   color: #fff;
 }
 .segmented { display: flex; flex-wrap: wrap; gap: 0.35rem; }

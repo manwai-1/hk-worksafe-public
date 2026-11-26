@@ -248,6 +248,7 @@ for (const phrase of ["此冊不是政府刊物", "來源說明", "Legal referen
   if (!joined.includes(phrase)) fail("缺少字句：" + phrase);
 }
 const { dateShort, dateFragments } = await import("../src/lib/period.ts");
+const { linkSegments } = await import("../src/lib/links.ts");
 const shortCases = [
   ["September 2026 (month only, as stated on the official alert)", "2026年9月（僅註明月份）"],
   ["2026-11-05, morning (HKT)", "2026-11-05 上午"],
@@ -273,6 +274,32 @@ if (undated[0]?.text !== "2026-11-11" || undated[0]?.kind !== "token" || undated
 }
 const morning = dateFragments("2026-11-05 上午");
 if (morning.length !== 1 || morning[0].text !== "2026-11-05 上午" || morning[0].kind !== "token") fail("上午日期被拆開");
+function hrefsIn(text) {
+  return linkSegments(text).filter((segment) => segment.kind === "link").map((segment) => segment.href);
+}
+const wrapped = "見（https://example.com/a.htm）。下一句不應被吃掉";
+const wrappedHrefs = hrefsIn(wrapped);
+if (wrappedHrefs.length !== 1 || wrappedHrefs[0] !== "https://example.com/a.htm") fail("全形括號後的句子被併入網址：" + wrappedHrefs.join("|"));
+if (linkSegments(wrapped).map((segment) => segment.kind === "link" ? segment.href : segment.text).join("") !== wrapped) {
+  fail("連結拆段改變了原文");
+}
+const shatinRecord = data.records.find((record) => record.id === "2026-11-05-shatin");
+const tungchungRecord = data.records.find((record) => record.id === "2026-10-07-tungchung");
+const shatinHrefs = hrefsIn(shatinRecord.updatesZh.map((line) => line.value).join("\n"));
+const tungchungHrefs = hrefsIn(tungchungRecord.updatesZh.map((line) => line.value).join("\n"));
+if (!shatinHrefs.includes("https://www.labour.gov.hk/tc/news/work_safety_alert_2026.htm")) fail("沙田中文更新沒有正確職安警示連結");
+if (!tungchungHrefs.includes("https://www.labour.gov.hk/tc/public/safety_hints_20261007.htm")) fail("東涌中文更新沒有正確安全提示連結");
+for (const href of [...shatinHrefs, ...tungchungHrefs]) {
+  if (/[（）]/.test(href) || /[\u4e00-\u9fff]/.test(href)) fail("更新連結吞了中文：" + href);
+}
+const intentional404 = "https://www.labour.gov.hk/eng/public/safety_hints_20261105.htm";
+if (!shatinHrefs.includes(intentional404)) fail("沙田未能開啟的英文網址被改掉");
+if (!JSON.stringify(shatinRecord).includes(intentional404)) fail("沙田原文不再引用未能開啟的英文網址");
+const dotted = hrefsIn("見 https://example.com/a.htm。");
+if (dotted.length !== 1 || dotted[0] !== "https://example.com/a.htm") fail("句號沒有從網址尾端裁掉");
+if (!read("src/styles.css").includes("--muted: #637289;")) fail("muted 未改為 #637289");
+if (!read("src/styles.css").includes("--accent: #3b82f6;")) fail("accent 被改掉");
+if (!read("src/styles.css").includes("background: var(--accent-deep);")) fail("選中填色未改用 accent-deep");
 if (!read("vite.config.ts").includes('base: "/hk-worksafe-public/"')) fail("Pages base path 不正確");
 const workflow = read(".github/workflows/pages.yml");
 if (!workflow.includes("actions/deploy-pages") || !workflow.includes("actions/upload-pages-artifact")) fail("Pages workflow 不完整");
