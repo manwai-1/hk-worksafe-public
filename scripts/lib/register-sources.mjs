@@ -4,6 +4,23 @@ import path from "node:path";
 
 export const SNAPSHOT_BRANCH = "incoming/verified";
 
+export function resolveSnapshotRef({ eventName, snapshotRef, pushSha }) {
+  if (eventName === "workflow_dispatch") {
+    const ref = String(snapshotRef || "").trim();
+    return ref || SNAPSHOT_BRANCH;
+  }
+  if (eventName === "push") {
+    const sha = String(pushSha || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("push 事件沒有完整 sha");
+    return sha;
+  }
+  return SNAPSHOT_BRANCH;
+}
+
+export function missingSnapshotStatus(eventName) {
+  return eventName === "schedule" ? 0 : 1;
+}
+
 export const SNAPSHOT_FILES = [
   "sources/REGISTER.md",
   "sources/ZH_OFFICIAL_SUMMARIES.md",

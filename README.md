@@ -45,4 +45,4 @@ npm run preview
 
 ## 資料同步
 
-已核對的快照由 `.github/workflows/data-sync.yml` 讀取並分類，不經網頁 API，也不取代 `.github/workflows/pages.yml`。輸入、分類與合併規則見 [API_SPEC.md](API_SPEC.md)。
+已核對的快照由 `.github/workflows/data-sync.yml` 讀取並分類，不經網頁 API，也不取代 `.github/workflows/pages.yml`。推送到 `incoming/verified` 會啟動它；另外於香港時間 10:00 與 18:00 排程，亦可手動執行。輸入、分類與合併規則見 [API_SPEC.md](API_SPEC.md)。

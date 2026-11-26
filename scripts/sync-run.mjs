@@ -4,14 +4,15 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
-  SNAPSHOT_BRANCH,
   SNAPSHOT_FILES,
   applySnapshot,
   chartMonthsFrom,
   classify,
   isSafeRef,
   loadTexts,
+  missingSnapshotStatus,
   plan,
+  resolveSnapshotRef,
   summarize,
 } from "./lib/register-sources.mjs";
 
@@ -120,6 +121,23 @@ function finishPublish(selector, subject) {
   console.log("已合併並觸發 Pages 工作流程。");
 }
 
+function fetchSnapshot(refName) {
+  if (!isSafeRef(refName)) throw new Error("snapshot_ref 不接受");
+  if (/^[0-9a-f]{40}$/.test(refName)) {
+    const sha = refName.toLowerCase();
+    const pin = "refs/remotes/origin/snapshot-pin";
+    const direct = run("git", ["fetch", "--depth=1", "origin", `+${sha}:${pin}`]);
+    if (direct.status === 0) return pin;
+    const byObject = run("git", ["fetch", "--depth=1", "origin", sha]);
+    if (byObject.status === 0) return sha;
+    return null;
+  }
+  const remoteRef = `refs/remotes/origin/${refName}`;
+  const fetched = run("git", ["fetch", "--depth=1", "origin", `+refs/heads/${refName}:${remoteRef}`]);
+  if (fetched.status !== 0) return null;
+  return remoteRef;
+}
+
 function readSnapshot(ref) {
   const texts = {};
   const names = {
@@ -171,18 +189,23 @@ function main() {
   }
 
   ensurePagesForHead();
-  const refName = process.env.SNAPSHOT_REF || SNAPSHOT_BRANCH;
-  if (!isSafeRef(refName)) throw new Error("snapshot_ref 不接受");
-  const remoteRef = `refs/remotes/origin/${refName}`;
-  const fetched = run("git", ["fetch", "--depth=1", "origin", `+refs/heads/${refName}:${remoteRef}`]);
-  if (fetched.status !== 0) {
-    if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch") throw new Error("找不到快照 ref " + refName);
-    console.log("沒有快照分支，結束。");
-    process.exit(0);
+  const eventName = process.env.GITHUB_EVENT_NAME || "";
+  const refName = resolveSnapshotRef({
+    eventName,
+    snapshotRef: process.env.SNAPSHOT_REF || "",
+    pushSha: process.env.SNAPSHOT_SHA || "",
+  });
+  const snapshot = fetchSnapshot(refName);
+  if (!snapshot) {
+    if (missingSnapshotStatus(eventName) === 0) {
+      console.log("沒有快照分支，結束。");
+      process.exit(0);
+    }
+    throw new Error("找不到快照 ref " + refName);
   }
 
   const current = loadTexts(repoRoot);
-  const incoming = readSnapshot(remoteRef);
+  const incoming = readSnapshot(snapshot);
   const result = classify(current, incoming, { chartMonths: chartMonths() });
   const decision = plan(result);
   console.log(summarize(result));

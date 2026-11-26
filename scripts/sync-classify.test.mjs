@@ -11,7 +11,9 @@ import {
   classify,
   isSafeRef,
   loadTexts,
+  missingSnapshotStatus,
   plan,
+  resolveSnapshotRef,
   publicCopy,
   snapshotDigest,
 } from "./lib/register-sources.mjs";
@@ -357,6 +359,51 @@ check("missing pattern is invalid", () => {
 check("unsafe ref rejected", () => {
   if (isSafeRef("incoming/verified") !== true) throw new Error("branch ref");
   if (isSafeRef("incoming/../main") || isSafeRef("-n") || isSafeRef("refs heads")) throw new Error("accepted unsafe ref");
+});
+
+check("snapshot ref follows the event", () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+  if (resolveSnapshotRef({ eventName: "schedule", snapshotRef: "other", pushSha: sha }) !== "incoming/verified") {
+    throw new Error("schedule used the wrong ref");
+  }
+  if (resolveSnapshotRef({ eventName: "", snapshotRef: sha, pushSha: sha }) !== "incoming/verified") {
+    throw new Error("unknown event used the sha");
+  }
+  if (resolveSnapshotRef({ eventName: "push", pushSha: sha.toUpperCase() }) !== sha) throw new Error("push did not pin the sha");
+  if (resolveSnapshotRef({ eventName: "workflow_dispatch", snapshotRef: "incoming/other" }) !== "incoming/other") {
+    throw new Error("dispatch ignored snapshot_ref");
+  }
+  if (resolveSnapshotRef({ eventName: "workflow_dispatch", snapshotRef: "  " }) !== "incoming/verified") {
+    throw new Error("empty dispatch ref");
+  }
+  let rejected = false;
+  try {
+    resolveSnapshotRef({ eventName: "push", pushSha: "abc" });
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("short sha accepted");
+  if (missingSnapshotStatus("schedule") !== 0) throw new Error("missing schedule branch should exit 0");
+  if (missingSnapshotStatus("push") !== 1 || missingSnapshotStatus("workflow_dispatch") !== 1) {
+    throw new Error("missing push or dispatch ref should fail");
+  }
+});
+
+check("workflow runs at 10:00 and 18:00 and on push", () => {
+  const workflow = fs.readFileSync(path.join(root, ".github/workflows/data-sync.yml"), "utf8");
+  const spec = fs.readFileSync(path.join(root, "API_SPEC.md"), "utf8");
+  if (!workflow.includes('cron: "0 2 * * *"') || !workflow.includes('cron: "0 10 * * *"')) throw new Error("cron");
+  if (/08:15|20:15|15 0 \*|15 12 \*/.test(workflow) || /08:15|20:15|00:15 UTC|12:15 UTC/.test(spec)) {
+    throw new Error("old schedule remains");
+  }
+  if (!workflow.includes("push:") || !workflow.includes("incoming/verified") || !workflow.includes("workflow_dispatch:")) {
+    throw new Error("trigger");
+  }
+  if (!workflow.includes("snapshot_ref:") || !workflow.includes("SNAPSHOT_SHA:")) throw new Error("snapshot inputs");
+  if (!spec.includes("10:00") || !spec.includes("18:00") || !spec.includes("02:00 UTC") || !spec.includes("10:00 UTC")) {
+    throw new Error("spec times");
+  }
+  if (!spec.includes("github.sha")) throw new Error("spec does not pin the pushed commit");
 });
 
 check("published header matches the source cutoff and count", () => {

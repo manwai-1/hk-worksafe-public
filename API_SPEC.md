@@ -6,7 +6,7 @@ Official-source checking stays outside this repo. The workflow does not fetch go
 
 ## Input
 
-A verifier pushes a commit to the branch `incoming/verified`. The tip of that branch is the snapshot. These three files are read together; any other files on the branch are ignored:
+A verifier pushes a commit to the branch `incoming/verified`. These three files are read together; any other files on the branch are ignored:
 
 | File | Role |
 | --- | --- |
@@ -16,7 +16,15 @@ A verifier pushes a commit to the branch `incoming/verified`. The tip of that br
 
 The same record occupies the same index in all three files. Identity is `presentation.records[].id`. The workflow never mints an id. A new id must match `^[a-z0-9][a-z0-9-]*$`. Renaming an id is a removal plus an addition, which is not auto-merged.
 
-`workflow_dispatch` input `snapshot_ref` selects another branch. The scheduled runs use `incoming/verified`. A missing branch on the schedule exits 0. A missing branch on a manual dispatch fails the job.
+Which commit is read:
+
+| Event | Snapshot |
+| --- | --- |
+| `push` to `incoming/verified` | That push’s commit, `github.sha`. A later push does not replace it for the run already started. |
+| `schedule` | The current tip of `incoming/verified`. If that branch does not exist, the run exits 0. |
+| `workflow_dispatch` | Input `snapshot_ref`, default `incoming/verified`. A missing ref fails the job. |
+
+GitHub starts the push run from the workflow file in the pushed commit. `incoming/verified` therefore has to contain `.github/workflows/data-sync.yml` (create it from `main` after this workflow is on `main`, and do not delete that file). The job checks out `main` and then reads the snapshot commit. Keep the workflow file on that branch the same as `main`.
 
 Line endings are normalized to LF before comparison. A CRLF copy of an unchanged snapshot is `none`.
 
@@ -24,8 +32,9 @@ Line endings are normalized to LF before comparison. A CRLF copy of an unchanged
 
 | Trigger | Implemented in | Owner setting |
 | --- | --- | --- |
-| `00:15 UTC` and `12:15 UTC` (08:15 and 20:15 Hong Kong, no daylight saving) | `.github/workflows/data-sync.yml` | GitHub may start a cron late. No extra switch. |
-| Actions → 資料同步 → Run workflow | same file | Write access to the repo |
+| `02:00 UTC` and `10:00 UTC` (10:00 and 18:00 Hong Kong, no daylight saving) | `.github/workflows/data-sync.yml` | One hour after the 09:00 and 17:00 HKT official scans, so a morning snapshot is not left until evening. GitHub may start a cron late. |
+| `push` to `incoming/verified` | same file | The branch must contain this workflow file, as above. |
+| Actions → 資料同步 → Run workflow, with `snapshot_ref` | same file | Write access to the repo |
 
 ## Classification
 
@@ -106,7 +115,7 @@ node scripts/sync-classify.test.mjs
 
 Implemented in this repository:
 
-- `.github/workflows/data-sync.yml` (schedule, manual dispatch, permissions `contents: write`, `pull-requests: write`, `actions: write`)
+- `.github/workflows/data-sync.yml` (10:00 and 18:00 HKT schedule, push to `incoming/verified`, manual dispatch, permissions `contents: write`, `pull-requests: write`, `actions: write`)
 - classification, apply, and tests in `scripts/lib/register-sources.mjs`, `scripts/sync-run.mjs`, and `scripts/sync-classify.test.mjs`
 - data-build checks that follow the source files instead of a fixed total of 85, fixed type counts, or 39 source notes
 - `.github/workflows/pages.yml` left unchanged
@@ -118,4 +127,4 @@ The owner still has to set, after this pull request is merged:
 1. Settings → Actions → General → Workflow permissions → Read and write permissions. A repository locked to read-only ignores the write permissions in the workflow file.
 2. Settings → General → Pull Requests → Allow auto-merge. Without it, an add-only run opens the pull request, fails, and retries on the next schedule.
 3. Branch protection on `main` must not require a review for unattended add-only merges. This workflow does not use an admin bypass. A required review leaves the pull request open and fails the wait; the next run retries.
-4. Create nothing until a verifier is ready. The verifier needs permission to push `incoming/verified`. This pull request does not create that branch and does not run the workflow.
+4. Create nothing until a verifier is ready. The verifier needs permission to push `incoming/verified`, and that branch must contain this workflow file so a push starts the sync. This pull request does not create that branch and does not run the workflow. The schedule on `main` still exits 0 while the branch is absent.
