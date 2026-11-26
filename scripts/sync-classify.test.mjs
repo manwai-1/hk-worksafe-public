@@ -13,7 +13,10 @@ import {
   loadTexts,
   missingSnapshotStatus,
   plan,
+  pullRequestAction,
   resolveSnapshotRef,
+  selectOwnedSyncPullRequest,
+  syncExit,
   publicCopy,
   snapshotDigest,
 } from "./lib/register-sources.mjs";
@@ -404,6 +407,148 @@ check("workflow runs at 10:00 and 18:00 and on push", () => {
     throw new Error("spec times");
   }
   if (!spec.includes("github.sha")) throw new Error("spec does not pin the pushed commit");
+});
+
+const REPO = "manwai-1/hk-worksafe-public";
+
+function plantedPullRequest(digest) {
+  return {
+    number: 99,
+    repository: "attacker/unrelated",
+    headRepository: "attacker/unrelated",
+    headRefName: "unrelated",
+    isCrossRepository: true,
+    isDraft: false,
+    body: `Snapshot-Digest: ${digest}`,
+    snapshotDigest: digest,
+  };
+}
+
+function ownedPullRequest(digest, { draft = false, number = 7 } = {}) {
+  return {
+    number,
+    repository: REPO,
+    headRepository: REPO,
+    headRefName: `sync/data-${digest.slice(0, 12)}-ours`,
+    isCrossRepository: false,
+    isDraft: draft,
+    body: `說明\nSnapshot-Digest: ${digest}\n`,
+    snapshotDigest: digest,
+  };
+}
+
+check("a digest in an unrelated pull request is not auto-merged", () => {
+  const digest = "a".repeat(64);
+  const planted = plantedPullRequest(digest);
+  const owned = selectOwnedSyncPullRequest([planted], { digest, repository: REPO });
+  if (owned.length) throw new Error("planted PR 99 was selected");
+  const action = pullRequestAction({ decision: "publish", owned });
+  if (action.action === "auto-merge" || action.pr === 99 || action.dispatch) throw new Error(JSON.stringify(action));
+  if (action.action !== "create" || action.draft) throw new Error(JSON.stringify(action));
+  const sameRepoWrongBranch = {
+    ...planted,
+    number: 99,
+    repository: REPO,
+    headRepository: REPO,
+    isCrossRepository: false,
+    headRefName: "unrelated",
+  };
+  const still = selectOwnedSyncPullRequest([sameRepoWrongBranch, planted], { digest, repository: REPO });
+  if (still.length) throw new Error("unrelated branch was selected");
+  const again = pullRequestAction({ decision: "publish", owned: still });
+  if (again.pr === 99 || again.dispatch || again.action === "auto-merge") throw new Error(JSON.stringify(again));
+});
+
+check("draft classifications ignore a foreign digest and stay on the sync branch", () => {
+  const digest = "b".repeat(64);
+  const planted = plantedPullRequest(digest);
+  const ours = ownedPullRequest(digest, { draft: true });
+  const foreignOnly = selectOwnedSyncPullRequest([planted], { digest, repository: REPO });
+  for (const decision of ["draft"]) {
+    const created = pullRequestAction({ decision, owned: foreignOnly });
+    if (created.action !== "create" || !created.draft || created.dispatch || created.pr !== null) {
+      throw new Error(JSON.stringify(created));
+    }
+  }
+  const owned = selectOwnedSyncPullRequest([planted, ours], { digest, repository: REPO });
+  if (owned.map((pr) => pr.number).join(",") !== "7") throw new Error(owned.map((pr) => pr.number).join(","));
+  const updated = pullRequestAction({ decision: "draft", owned });
+  if (updated.action !== "update" || updated.pr !== 7 || updated.dispatch || !updated.draft) {
+    throw new Error(JSON.stringify(updated));
+  }
+  const publishOwned = pullRequestAction({
+    decision: "publish",
+    owned: selectOwnedSyncPullRequest([planted, ownedPullRequest(digest, { draft: false })], { digest, repository: REPO }),
+  });
+  if (publishOwned.action !== "auto-merge" || publishOwned.pr !== 7 || !publishOwned.dispatch) {
+    throw new Error(JSON.stringify(publishOwned));
+  }
+});
+
+check("modify, mixed, and chart-month drafts are not dropped when a foreign digest exists", () => {
+  const digest = "c".repeat(64);
+  const planted = plantedPullRequest(digest);
+  const owned = selectOwnedSyncPullRequest([planted], { digest, repository: REPO });
+  const cases = [
+    classifyToy(toy(), toy({ summary: "A stated fact, revised." })),
+    classifyToy(toy({ keys: ["alpha"] }), toy({ keys: ["beta", "alpha"], summary: "A stated fact, revised." })),
+    classifyToy(toy({ keys: ["alpha"] }), toy({ keys: ["late", "alpha"] })),
+  ];
+  for (const result of cases) {
+    if (plan(result) !== "draft") throw new Error(result.kind + " " + plan(result));
+    const action = pullRequestAction({ decision: plan(result), owned });
+    if (action.action !== "create" || !action.draft || action.dispatch || action.pr === 99) {
+      throw new Error(result.kind + " " + JSON.stringify(action));
+    }
+  }
+  const ours = ownedPullRequest(digest, { draft: true });
+  const withOurs = selectOwnedSyncPullRequest([planted, ours], { digest, repository: REPO });
+  const updated = pullRequestAction({ decision: "draft", owned: withOurs });
+  if (updated.action !== "update" || updated.pr !== 7 || updated.dispatch) throw new Error(JSON.stringify(updated));
+});
+
+check("orphan or duplicate record text is a draft even when the cutoff changes", () => {
+  const shifted = shiftScan(production);
+  const heading = shifted.register.match(/^### .+$/m)[0];
+  const orphan = classify(production, {
+    ...shifted,
+    register: shifted.register.replace(heading, `${heading}\nQA-INJECTED-LINE-NOT-A-FIELD`),
+  }, { chartMonths: months });
+  assertKind(orphan, "modify");
+  if (plan(orphan) !== "draft") throw new Error(plan(orphan));
+  if (!orphan.modified.some((item) => item.reasons.includes("raw"))) throw new Error(JSON.stringify(orphan.modified));
+  const hidden = classify(production, {
+    ...shifted,
+    register: shifted.register.replace("- **Summary:**", "- **Summary:** QA HIDDEN FACT\n- **Summary:**"),
+  }, { chartMonths: months });
+  assertKind(hidden, "modify");
+  if (plan(hidden) !== "draft") throw new Error(plan(hidden));
+  if (!hidden.scanChanged) throw new Error("cutoff change was lost");
+  const prose = classify(production, {
+    ...shifted,
+    summaries: shifted.summaries.replace(/^\*\*紀錄數目：\*\*.*$/m, (line) => `${line} QA count prose`),
+  }, { chartMonths: months });
+  assertKind(prose, "modify");
+  if (plan(prose) !== "draft") throw new Error(plan(prose));
+});
+
+check("missing or incomplete count lines are invalid and open no pull request", () => {
+  const removed = classify(production, {
+    ...production,
+    summaries: production.summaries.replace(/^\*\*紀錄數目：\*\*.*\n/m, ""),
+  }, { chartMonths: months });
+  assertKind(removed, "invalid");
+  const removedExit = syncExit(plan(removed));
+  if (removedExit.exitCode !== 1 || removedExit.openPr) throw new Error(JSON.stringify(removedExit));
+  const total = assemble(production).records.length;
+  const bare = classify(production, {
+    ...production,
+    summaries: production.summaries.replace(/^\*\*紀錄數目：\*\*.*$/m, `**紀錄數目：** ${total}筆。QA count prose`),
+  }, { chartMonths: months });
+  assertKind(bare, "invalid");
+  const bareExit = syncExit(plan(bare));
+  if (bareExit.exitCode !== 1 || bareExit.openPr) throw new Error(JSON.stringify(bareExit));
+  if (!bare.errors.some((error) => error.includes("各類型"))) throw new Error(bare.errors.join("\n"));
 });
 
 check("published header matches the source cutoff and count", () => {

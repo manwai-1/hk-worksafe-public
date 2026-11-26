@@ -59,6 +59,10 @@ Scan metadata, which is not an item modification:
 
 Inserting a new record while leaving the previous ids in the same order is `add`. Swapping two existing ids is `modify`. A new follow thread whose ids are all new can stay on the `add` path. Changing a thread that already contains an existing id is `modify`. A new pattern-group label is `modify`.
 
+Comparison uses the raw record text that would be written, not only the fields the parser keeps. Text before the first field, an earlier duplicate field, or any other raw change to an existing record is `modify` (or `mixed` when new records are also present), even if the parsed summary is unchanged and the cutoff also moved. The only record-local text that may change on the `scan-time` path is `ZH source status`.
+
+The `**紀錄數目：**` line is required. If it is missing, or it states a total without the per-type counts, the snapshot is `invalid`: exit 1 and no pull request. A complete line whose numbers match but whose surrounding prose changed is not scan metadata; together with a cutoff change it is still `modify` and a draft.
+
 An incident, prosecution, or alert whose month is outside `CHART_MONTHS` in `src/lib/period.ts` is not auto-merged. The kind may still be `add`, but the plan is a draft. Extending the chart is a code change on that draft; this workflow does not edit `period.ts`.
 
 ## Scan-time choice
@@ -95,7 +99,9 @@ Draft (`modify`, `mixed`, or a chart-month block):
 Idempotency:
 
 - The snapshot digest is the SHA-256 of the three LF-normalized files. The pull request body contains `Snapshot-Digest: <hex>`.
-- An open pull request with that digest is left alone. A publish pull request that is still open is offered to auto-merge again on the next run.
+- Auto-merge and the Pages dispatch run only for a pull request that this repository opened from `sync/data-<first 12 hex>-…`, whose head is in this repository, and whose three source files hash to that same digest. A digest string in any other pull request, including another repository or an unrelated branch, is ignored.
+- For `modify`, `mixed`, and a chart-month block, the run still opens or updates the draft on that sync branch and does not auto-merge, even if some other pull request body already contains the digest.
+- A non-draft publish pull request that passes the checks above is offered to auto-merge again on the next run. Drafts are updated in place and are not auto-merged.
 - After merge, the next run classifies `none`.
 - If `main` was merged and Pages was not dispatched, the next run sees a `sync:` commit with no Pages run for that SHA and dispatches `pages.yml` once.
 

@@ -21,6 +21,63 @@ export function missingSnapshotStatus(eventName) {
   return eventName === "schedule" ? 0 : 1;
 }
 
+export function syncBranchPrefix(digest) {
+  if (!/^[0-9a-f]{64}$/.test(digest)) throw new Error("摘要不是 64 位");
+  return `sync/data-${digest.slice(0, 12)}`;
+}
+
+export function bodyHasSnapshotDigest(body, digest) {
+  if (typeof body !== "string" || !/^[0-9a-f]{64}$/.test(digest)) return false;
+  const needle = `Snapshot-Digest: ${digest}`;
+  let from = 0;
+  while (from < body.length) {
+    const at = body.indexOf(needle, from);
+    if (at < 0) return false;
+    const next = body[at + needle.length];
+    if (next === undefined || !/[0-9a-f]/i.test(next)) return true;
+    from = at + needle.length;
+  }
+  return false;
+}
+
+export function isSyncHeadBranch(name, digest) {
+  if (typeof name !== "string") return false;
+  const prefix = syncBranchPrefix(digest);
+  return name === prefix || name.startsWith(`${prefix}-`);
+}
+
+export function selectOwnedSyncPullRequest(pulls, { digest, repository }) {
+  if (!repository) return [];
+  return pulls.filter((pr) => {
+    if (!pr || pr.isCrossRepository) return false;
+    if (pr.repository !== repository || pr.headRepository !== repository) return false;
+    if (!isSyncHeadBranch(pr.headRefName, digest)) return false;
+    if (pr.snapshotDigest !== digest) return false;
+    if (!bodyHasSnapshotDigest(pr.body, digest)) return false;
+    return true;
+  });
+}
+
+export function pullRequestAction({ decision, owned }) {
+  const match = owned[0] || null;
+  if (decision === "publish" && match && !match.isDraft) {
+    return { action: "auto-merge", pr: match.number, branch: match.headRefName, draft: false, dispatch: true };
+  }
+  if (decision === "publish" && match && match.isDraft) {
+    return { action: "update", pr: match.number, branch: match.headRefName, draft: true, dispatch: false };
+  }
+  if (decision === "publish") {
+    return { action: "create", pr: null, branch: null, draft: false, dispatch: false };
+  }
+  if (decision === "draft" && match) {
+    return { action: "update", pr: match.number, branch: match.headRefName, draft: true, dispatch: false };
+  }
+  if (decision === "draft") {
+    return { action: "create", pr: null, branch: null, draft: true, dispatch: false };
+  }
+  return { action: "none", pr: null, branch: null, draft: false, dispatch: false };
+}
+
 export const SNAPSHOT_FILES = [
   "sources/REGISTER.md",
   "sources/ZH_OFFICIAL_SUMMARIES.md",
@@ -63,6 +120,7 @@ export function parseRecords(markdown) {
     .map((chunk) => {
       const lines = chunk.replace(/\s+$/, "").split("\n");
       const heading = lines[0].trim();
+      const raw = lines.slice(1).join("\n");
       const fields = {};
       let key = null;
       let buf = [];
@@ -83,7 +141,7 @@ export function parseRecords(markdown) {
         }
       }
       flush();
-      return { heading, fields };
+      return { heading, fields, raw };
     });
 }
 
@@ -174,19 +232,30 @@ function preambleOf(markdown) {
   return parts[0] || "";
 }
 
+function countResidue(text) {
+  return text
+    .replace(/\S*（[a-z][a-z /]+）\s*\d+/g, "")
+    .replace(/\d+\s*筆/g, "")
+    .replace(/、+/g, "")
+    .replace(/\s+/g, "");
+}
+
 function normalizePreamble(register, summaries) {
   let reg = preambleOf(register);
   let zh = preambleOf(summaries);
   reg = reg.replace(/^\*\*Coverage:\*\*.*$/m, "**Coverage:** «COVERAGE»");
   zh = zh.replace(/^\*\*資料截止時間：\*\*.*$/m, "**資料截止時間：** «CUTOFF»");
   zh = zh.replace(/^\*\*涵蓋範圍：\*\*.*$/m, "**涵蓋範圍：** «COVERAGE»");
-  zh = zh.replace(/^\*\*紀錄數目：\*\*.*$/m, "**紀錄數目：** «COUNT»");
+  zh = zh.replace(/^\*\*紀錄數目：\*\*\s*(.*)$/m, (_all, rest) => `**紀錄數目：** ${countResidue(rest)}`);
   zh = zh.replace(/並於\d{4}-\d{2}-\d{2} 香港時間讀取核對/g, "並於«DATE» 香港時間讀取核對");
   return { register: reg.trim(), summaries: zh.trim() };
 }
 
 function validateCountLine(countLine, records, errors) {
-  if (!countLine) return;
+  if (!countLine) {
+    errors.push("缺少紀錄數目行");
+    return;
+  }
   const totalMatch = countLine.match(/(\d+)\s*筆/);
   if (!totalMatch) {
     errors.push("紀錄數目行沒有筆數");
@@ -196,7 +265,10 @@ function validateCountLine(countLine, records, errors) {
     errors.push(`紀錄數目行是 ${totalMatch[1]}，實際 ${records.length}`);
   }
   const pairs = [...countLine.matchAll(/（([a-z][a-z /]+)）\s*(\d+)/g)];
-  if (!pairs.length) return;
+  if (!pairs.length) {
+    errors.push("紀錄數目行沒有各類型筆數");
+    return;
+  }
   const seen = new Map(pairs.map((match) => [match[1], Number(match[2])]));
   const typeCounts = {};
   for (const record of records) typeCounts[record.type] = (typeCounts[record.type] || 0) + 1;
@@ -368,8 +440,14 @@ function fieldDiff(before, after, prefix) {
   return reasons;
 }
 
+function comparableRaw(record) {
+  const hideStatus = (text) => String(text || "").replace(/^- \*\*ZH source status[:：]\*\*.*$/gm, "- **ZH source status:** «STATUS»");
+  return `${hideStatus(record.reg.raw)}\0${hideStatus(record.zh.raw)}`;
+}
+
 function recordReasons(current, incoming, currentBundle, incomingBundle) {
   const reasons = [];
+  if (comparableRaw(current) !== comparableRaw(incoming)) reasons.push("raw");
   if (current.heading !== incoming.heading) reasons.push("heading");
   reasons.push(
     ...fieldDiff(plainEntries(current.reg.fields), plainEntries(incoming.reg.fields), "register:"),
@@ -527,6 +605,12 @@ export function plan(result) {
   if (result.blocks.length > 0) return "draft";
   if (result.kind === "add" || result.kind === "scan-time") return "publish";
   return "draft";
+}
+
+export function syncExit(decision) {
+  if (decision === "fail") return { exitCode: 1, openPr: false };
+  if (decision === "noop") return { exitCode: 0, openPr: false };
+  return { exitCode: null, openPr: true };
 }
 
 export function cutoffNote(result) {

@@ -9,10 +9,16 @@ import {
   chartMonthsFrom,
   classify,
   isSafeRef,
+  bodyHasSnapshotDigest,
+  isSyncHeadBranch,
   loadTexts,
   missingSnapshotStatus,
   plan,
+  pullRequestAction,
+  syncExit,
   resolveSnapshotRef,
+  selectOwnedSyncPullRequest,
+  snapshotDigest,
   summarize,
 } from "./lib/register-sources.mjs";
 
@@ -77,21 +83,66 @@ function runCi() {
   return { ok: true, log: "npm test 與 npm run build 已通過。" };
 }
 
-function openPullRequest(digest) {
-  const raw = must("gh", ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,body,headRefName,isDraft"]);
-  return JSON.parse(raw).find((item) => typeof item.body === "string" && item.body.includes(`Snapshot-Digest: ${digest}`)) || null;
+function mapListedPullRequest(item, repository) {
+  return {
+    number: item.number,
+    body: item.body || "",
+    headRefName: item.headRefName || "",
+    isDraft: Boolean(item.isDraft),
+    isCrossRepository: Boolean(item.isCrossRepository),
+    repository,
+    headRepository: item.headRepository?.nameWithOwner || "",
+    snapshotDigest: "",
+  };
 }
 
-function enableAutoMerge(branch, subject) {
-  const result = run("gh", ["pr", "merge", branch, "--squash", "--auto", "--delete-branch", "--subject", subject]);
+function branchSnapshotDigest(branch) {
+  if (!isSafeRef(branch)) return "";
+  const remoteRef = `refs/remotes/origin/${branch}`;
+  const fetched = run("git", ["fetch", "--depth=1", "origin", `+refs/heads/${branch}:${remoteRef}`]);
+  if (fetched.status !== 0) return "";
+  try {
+    return snapshotDigest(readSnapshot(remoteRef));
+  } catch {
+    return "";
+  }
+}
+
+function ownedPullRequests(digest, repository) {
+  const raw = must("gh", [
+    "pr",
+    "list",
+    "--repo",
+    repository,
+    "--state",
+    "open",
+    "--limit",
+    "100",
+    "--json",
+    "number,body,headRefName,isDraft,isCrossRepository,headRepository",
+  ]);
+  const listed = JSON.parse(raw).map((item) => mapListedPullRequest(item, repository));
+  const verified = [];
+  for (const pr of listed) {
+    if (pr.isCrossRepository || pr.headRepository !== repository) continue;
+    if (!isSyncHeadBranch(pr.headRefName, digest) || !bodyHasSnapshotDigest(pr.body, digest)) continue;
+    if (!isSafeRef(pr.headRefName)) continue;
+    if (branchSnapshotDigest(pr.headRefName) !== digest) continue;
+    verified.push({ ...pr, snapshotDigest: digest });
+  }
+  return selectOwnedSyncPullRequest(verified, { digest, repository });
+}
+
+function enableAutoMerge(number, repository, subject) {
+  const result = run("gh", ["pr", "merge", String(number), "--repo", repository, "--squash", "--auto", "--delete-branch", "--subject", subject]);
   if (result.status === 0) return;
   const text = `${result.stderr || ""}\n${result.stdout || ""}`;
   if (!/already/i.test(text)) throw new Error(text);
 }
 
-function waitUntilMerged(branch) {
+function waitUntilMerged(number, repository) {
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const view = JSON.parse(must("gh", ["pr", "view", branch, "--json", "state"]));
+    const view = JSON.parse(must("gh", ["pr", "view", String(number), "--repo", repository, "--json", "state"]));
     if (view.state === "MERGED") return true;
     run("sleep", ["10"]);
   }
@@ -112,9 +163,14 @@ function ensurePagesForHead() {
   console.log("已補觸發 Pages 工作流程：" + sha);
 }
 
-function finishPublish(selector, subject) {
-  enableAutoMerge(selector, subject);
-  if (!waitUntilMerged(selector)) {
+function finishPublish(pr, subject) {
+  const repository = process.env.GITHUB_REPOSITORY || "";
+  const owned = selectOwnedSyncPullRequest([pr], { digest: pr.snapshotDigest, repository });
+  if (owned.length !== 1 || owned[0].number !== pr.number || owned[0].isDraft || owned[0].headRefName !== pr.headRefName) {
+    throw new Error("拒絕自動合併這個拉取請求");
+  }
+  enableAutoMerge(String(pr.number), pr.repository, subject);
+  if (!waitUntilMerged(String(pr.number), pr.repository)) {
     throw new Error("自動合併未在時限內完成。若倉庫未允許 auto-merge，或分支保護要求覆核，拉取請求會保持開啟，下次排程會再試。");
   }
   dispatchPages();
@@ -210,19 +266,24 @@ function main() {
   const decision = plan(result);
   console.log(summarize(result));
   console.log("合併路徑：" + decision);
-  if (decision === "fail") process.exit(1);
-  if (decision === "noop") process.exit(0);
+  const gate = syncExit(decision);
+  if (gate.exitCode !== null) process.exit(gate.exitCode);
 
   const subject = commitSubject(result);
-  const existing = openPullRequest(result.digest);
-  if (existing) {
-    if (decision === "publish" && !existing.isDraft) {
-      finishPublish(String(existing.number), subject);
-      process.exit(0);
-    }
-    console.log("已有開啟的拉取請求 #" + existing.number + "，結束。");
+  const repository = process.env.GITHUB_REPOSITORY || "";
+  if (!repository) throw new Error("沒有 GITHUB_REPOSITORY");
+  const owned = ownedPullRequests(result.digest, repository);
+  const action = pullRequestAction({ decision, owned });
+  if (action.action === "auto-merge") {
+    finishPublish(owned[0], subject);
     process.exit(0);
   }
+  if (action.action === "update") {
+    updatePullRequest(owned[0], result, "沿用已開啟的同步拉取請求，不自動合併。", true);
+    console.log("已更新拉取請求 #" + action.pr + "，不自動合併。");
+    process.exit(0);
+  }
+  if (action.action !== "create") process.exit(0);
 
   const branch = `sync/data-${result.digest.slice(0, 12)}-${Date.now().toString(36)}`;
   must("git", ["config", "user.name", "github-actions[bot]"]);
@@ -249,13 +310,36 @@ function main() {
   fs.writeFileSync(bodyPath, report(result, ci.ok ? ci.log : "未通過：\n\n```\n" + ci.log + "\n```"));
   const create = ["pr", "create", "--base", "main", "--head", branch, "--title", prTitle(result), "--body-file", bodyPath];
   if (decision === "draft") create.push("--draft");
-  const created = must("gh", create).trim();
-  if (decision === "draft") {
+  const created = must("gh", create).trim().split("\n").pop();
+  const createdPr = confirmedPullRequest(created, repository, result.digest, branch);
+  if (decision === "draft" || createdPr.isDraft) {
     console.log("已開草稿，不自動合併。");
     console.log(created);
     process.exit(0);
   }
-  finishPublish(created.split("\n").pop(), subject);
+  finishPublish(createdPr, subject);
+}
+
+function updatePullRequest(pr, result, ci, draft) {
+  const bodyPath = path.join(os.tmpdir(), `sync-pr-${pr.number}.md`);
+  fs.writeFileSync(bodyPath, report(result, ci));
+  must("gh", ["pr", "edit", String(pr.number), "--repo", pr.repository, "--body-file", bodyPath]);
+  if (draft && !pr.isDraft) must("gh", ["pr", "ready", String(pr.number), "--repo", pr.repository, "--undo"]);
+}
+
+function confirmedPullRequest(url, repository, digest, branch) {
+  const item = JSON.parse(must("gh", [
+    "pr", "view", url, "--repo", repository,
+    "--json", "number,body,headRefName,isDraft,isCrossRepository,headRepository",
+  ]));
+  const pr = mapListedPullRequest(item, repository);
+  if (pr.headRefName !== branch || branchSnapshotDigest(branch) !== digest) {
+    throw new Error("新建的拉取請求不是這次的同步分支");
+  }
+  pr.snapshotDigest = digest;
+  const owned = selectOwnedSyncPullRequest([pr], { digest, repository });
+  if (owned.length !== 1 || owned[0].number !== pr.number) throw new Error("新建的拉取請求未通過同步分支核對");
+  return owned[0];
 }
 
 main();
