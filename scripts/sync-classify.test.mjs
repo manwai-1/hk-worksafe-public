@@ -881,8 +881,22 @@ check("runner self-check and fixture plans", () => {
   const self = spawnSync("node", ["scripts/sync-run.mjs", "--self-check"], { cwd: root, encoding: "utf8" });
   if (self.status !== 0) throw new Error(self.stdout + self.stderr);
   if (!self.stdout.includes('"kind":"none"')) throw new Error(self.stdout);
-  const blocked = spawnSync("node", ["scripts/sync-run.mjs", "--push"], { cwd: root, encoding: "utf8" });
+  // npm test also runs inside Actions (data-sync CI and pages.yml). Leave SNAPSHOT_SHA,
+  // GITHUB_EVENT_NAME, and the token in place, and remove only GITHUB_ACTIONS, so
+  // this child is outside Actions and must stop on the real --push guard.
+  const outsideActions = { ...process.env };
+  delete outsideActions.GITHUB_ACTIONS;
+  const blocked = spawnSync("node", ["scripts/sync-run.mjs", "--push"], {
+    cwd: root,
+    encoding: "utf8",
+    env: outsideActions,
+  });
   if (blocked.status === 0) throw new Error("push was allowed outside Actions");
+  if (!`${blocked.stderr || ""}`.includes("sync-run --push 只在 GitHub Actions 執行。")) {
+    throw new Error(
+      `push was not rejected by the Actions guard (status ${blocked.status})\n${blocked.stderr || ""}\n${blocked.stdout || ""}`,
+    );
+  }
   const currentDir = fs.mkdtempSync(path.join(os.tmpdir(), "sync-current-"));
   const incomingDir = fs.mkdtempSync(path.join(os.tmpdir(), "sync-incoming-"));
   for (const dir of [currentDir, incomingDir]) fs.mkdirSync(path.join(dir, "sources"), { recursive: true });
