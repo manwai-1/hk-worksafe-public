@@ -532,6 +532,92 @@ check("orphan or duplicate record text is a draft even when the cutoff changes",
   if (plan(prose) !== "draft") throw new Error(plan(prose));
 });
 
+function glueCountLabel(summaries) {
+  return summaries.replace("檢控（prosecution）", "這句不應自動發佈（prosecution）");
+}
+
+check("glued count-line text is a draft and is not dropped", () => {
+  const shifted = shiftScan(production);
+  const gluedCutoff = classify(production, {
+    ...shifted,
+    summaries: glueCountLabel(shifted.summaries),
+  }, { chartMonths: months });
+  assertKind(gluedCutoff, "modify");
+  if (plan(gluedCutoff) !== "draft" || !gluedCutoff.preambleChanged || !gluedCutoff.scanChanged) {
+    throw new Error(JSON.stringify({ kind: gluedCutoff.kind, plan: plan(gluedCutoff), preamble: gluedCutoff.preambleChanged }));
+  }
+  const secondTotal = classify(production, {
+    ...shifted,
+    summaries: shifted.summaries.replace("分為：", "999筆分為："),
+  }, { chartMonths: months });
+  assertKind(secondTotal, "modify");
+  if (plan(secondTotal) !== "draft") throw new Error(plan(secondTotal));
+  const labelOnly = classify(production, {
+    ...production,
+    summaries: glueCountLabel(production.summaries),
+  }, { chartMonths: months });
+  assertKind(labelOnly, "modify");
+  if (plan(labelOnly) !== "draft") throw new Error(plan(labelOnly));
+  const exit = syncExit(plan(labelOnly));
+  if (exit.exitCode !== null || !exit.openPr) throw new Error(JSON.stringify(exit));
+
+  const base = assemble(production);
+  const counts = {};
+  for (const record of base.records) counts[record.type] = (counts[record.type] || 0) + 1;
+  counts.incident += 1;
+  const labels = {
+    prosecution: "檢控",
+    incident: "事故",
+    alert: "職安警示",
+    guidance: "指引",
+    "code of practice": "工作守則",
+    "ordinance/regulation": "條例／規例",
+  };
+  const gluedLine = `${base.records.length + 1}筆，與登記冊相同，分為：${Object.keys(labels)
+    .filter((type) => counts[type])
+    .map((type) => `${type === "prosecution" ? "這句不應自動發佈" : labels[type]}（${type}）${counts[type]}`)
+    .join("、")}。`;
+  const id = "2026-11-25-count-line-fixture";
+  const registerRecord = `### 2026-11-25 (HKT; fixture, not an official record)
+
+- **Type:** incident
+- **Title:** Fixture incident / 測試意外
+- **Official source:** Isolated test fixture. https://example.com/fixture-incident
+- **Summary:** This fixture is not an official record.
+- **Legal reference:** None stated.
+- **Status:** official
+
+`;
+  const zhRecord = `### 2026-11-25 (HKT; fixture, not an official record)
+
+- **Type:** incident
+- **Official Chinese title:** 測試意外
+- **Official Chinese source:** https://example.com/fixture-incident
+- **Official Chinese summary:** 此為測試意外，不是官方事實。
+- **Legal reference (official Chinese):** 未有。
+- **ZH source status:** fetched（2026-11-20 香港時間）
+
+`;
+  const presentation = JSON.parse(production.presentation);
+  presentation.records.unshift({
+    id,
+    titleEn: "Fixture incident",
+    sources: [{ title: "Fixture", site: "example.com", href: "https://example.com/fixture-incident" }],
+  });
+  const other = presentation.patternGroups.find((group) => group.key === "other");
+  other.ids.push(id);
+  const added = classify(production, {
+    register: production.register.replace("## Records\n", "## Records\n" + registerRecord),
+    summaries: production.summaries
+      .replace("## Records\n", "## Records\n" + zhRecord)
+      .replace(/^\*\*紀錄數目：\*\*.*$/m, `**紀錄數目：** ${gluedLine}`),
+    presentation: JSON.stringify(presentation, null, 2) + "\n",
+  }, { chartMonths: months });
+  if (plan(added) !== "draft" || added.blocks.length) {
+    throw new Error(JSON.stringify({ kind: added.kind, plan: plan(added), blocks: added.blocks, errors: added.errors }));
+  }
+});
+
 check("missing or incomplete count lines are invalid and open no pull request", () => {
   const removed = classify(production, {
     ...production,

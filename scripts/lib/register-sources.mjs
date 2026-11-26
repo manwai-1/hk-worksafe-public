@@ -232,12 +232,30 @@ function preambleOf(markdown) {
   return parts[0] || "";
 }
 
+const COUNT_LABELS = [
+  ["prosecution", "檢控"],
+  ["incident", "事故"],
+  ["alert", "職安警示"],
+  ["guidance", "指引"],
+  ["code of practice", "工作守則"],
+  ["ordinance/regulation", "條例／規例"],
+];
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function countResidue(text) {
-  return text
-    .replace(/\S*（[a-z][a-z /]+）\s*\d+/g, "")
-    .replace(/\d+\s*筆/g, "")
-    .replace(/、+/g, "")
-    .replace(/\s+/g, "");
+  const token = new RegExp(
+    COUNT_LABELS.map(([type, label]) => `${escapeRegExp(label)}（${escapeRegExp(type)}）\\s*\\d+`).join("|"),
+    "g",
+  );
+  const masked = text.replace(/\d+\s*筆/, "«TOTAL»");
+  return masked
+    .split(token)
+    .filter((part) => !/^[、\s]*$/.test(part))
+    .join("")
+    .replaceAll("«TOTAL»", "");
 }
 
 function normalizePreamble(register, summaries) {

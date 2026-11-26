@@ -54,14 +54,13 @@ Scan metadata, which is not an item modification:
 - the whole `**Coverage:**` line in `REGISTER.md` (coverage range, last routine scan, last initial scan, last backfill)
 - `**資料截止時間：**` and `**涵蓋範圍：**`
 - the preamble date in `並於YYYY-MM-DD 香港時間讀取核對`
-- the `**紀錄數目：**` line, which must still state the real total and the real per-type counts or the snapshot is `invalid`
 - each record’s `ZH source status` fetch stamp
 
 Inserting a new record while leaving the previous ids in the same order is `add`. Swapping two existing ids is `modify`. A new follow thread whose ids are all new can stay on the `add` path. Changing a thread that already contains an existing id is `modify`. A new pattern-group label is `modify`.
 
 Comparison uses the raw record text that would be written, not only the fields the parser keeps. Text before the first field, an earlier duplicate field, or any other raw change to an existing record is `modify` (or `mixed` when new records are also present), even if the parsed summary is unchanged and the cutoff also moved. The only record-local text that may change on the `scan-time` path is `ZH source status`.
 
-The `**紀錄數目：**` line is required. If it is missing, or it states a total without the per-type counts, the snapshot is `invalid`: exit 1 and no pull request. A complete line whose numbers match but whose surrounding prose changed is not scan metadata; together with a cutoff change it is still `modify` and a draft.
+The `**紀錄數目：**` line is required. If it is missing, or it states a total without the per-type counts, the snapshot is `invalid`: exit 1 and no pull request. Unexpected text on a complete line is `modify` and a draft, not `scan-time`, `add`, or `none`. That includes a label rewritten directly against `（type）`, a second `N筆`, and spaced trailing prose such as `QA count prose`. The draft stands when that text is the only edit, when the cutoff also changes, and when a new in-range record is added in the same snapshot. Updating the numeric total and the canonical per-type counts so they match the records is not, by itself, a modification.
 
 An incident, prosecution, or alert whose month is outside `CHART_MONTHS` in `src/lib/period.ts` is not auto-merged. The kind may still be `add`, but the plan is a draft. Extending the chart is a code change on that draft; this workflow does not edit `period.ts`.
 
