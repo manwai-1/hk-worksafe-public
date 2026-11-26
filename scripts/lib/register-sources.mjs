@@ -246,16 +246,23 @@ function escapeRegExp(text) {
 }
 
 function countResidue(text) {
-  const token = new RegExp(
-    COUNT_LABELS.map(([type, label]) => `${escapeRegExp(label)}（${escapeRegExp(type)}）\\s*\\d+`).join("|"),
-    "g",
-  );
-  const masked = text.replace(/\d+\s*筆/, "«TOTAL»");
-  return masked
-    .split(token)
-    .filter((part) => !/^[、\s]*$/.test(part))
-    .join("")
-    .replaceAll("«TOTAL»", "");
+  const spans = [];
+  const total = /\d+\s*筆/.exec(text);
+  if (total) spans.push([total.index, total.index + total[0].length]);
+  for (const [type, label] of COUNT_LABELS) {
+    const match = new RegExp(`${escapeRegExp(label)}（${escapeRegExp(type)}）\\s*\\d+`).exec(text);
+    if (match) spans.push([match.index, match.index + match[0].length]);
+  }
+  spans.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+  const parts = [];
+  let cursor = 0;
+  for (const [start, end] of spans) {
+    if (start < cursor) continue;
+    parts.push(text.slice(cursor, start));
+    cursor = end;
+  }
+  parts.push(text.slice(cursor));
+  return parts.filter((part) => !/^[、\s]*$/.test(part)).join("");
 }
 
 function normalizePreamble(register, summaries) {

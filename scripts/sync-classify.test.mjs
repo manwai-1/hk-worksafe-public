@@ -618,6 +618,99 @@ check("glued count-line text is a draft and is not dropped", () => {
   }
 });
 
+function duplicateProsecution(summaries) {
+  return summaries.replace("檢控（prosecution）31", "檢控（prosecution）999、檢控（prosecution）31");
+}
+
+check("a false count before the true count is a draft", () => {
+  const alone = classify(production, {
+    ...production,
+    summaries: duplicateProsecution(production.summaries),
+  }, { chartMonths: months });
+  assertKind(alone, "modify");
+  if (plan(alone) !== "draft" || !alone.preambleChanged) throw new Error(JSON.stringify({ kind: alone.kind, plan: plan(alone) }));
+  const exit = syncExit(plan(alone));
+  if (exit.exitCode !== null || !exit.openPr) throw new Error(JSON.stringify(exit));
+
+  const shifted = shiftScan(production);
+  const withCutoff = classify(production, {
+    ...shifted,
+    summaries: duplicateProsecution(shifted.summaries),
+  }, { chartMonths: months });
+  assertKind(withCutoff, "modify");
+  if (plan(withCutoff) !== "draft" || !withCutoff.scanChanged || !withCutoff.preambleChanged) {
+    throw new Error(JSON.stringify({ kind: withCutoff.kind, plan: plan(withCutoff) }));
+  }
+
+  const masked = classify(production, {
+    ...shifted,
+    summaries: shifted.summaries.replace(/^\*\*紀錄數目：\*\*.*$/m, (line) => `${line}«TOTAL»`),
+  }, { chartMonths: months });
+  assertKind(masked, "modify");
+  if (plan(masked) !== "draft") throw new Error(plan(masked));
+
+  const base = assemble(production);
+  const counts = {};
+  for (const record of base.records) counts[record.type] = (counts[record.type] || 0) + 1;
+  counts.incident += 1;
+  const labels = {
+    prosecution: "檢控",
+    incident: "事故",
+    alert: "職安警示",
+    guidance: "指引",
+    "code of practice": "工作守則",
+    "ordinance/regulation": "條例／規例",
+  };
+  const countLine = `${base.records.length + 1}筆，與登記冊相同，分為：${Object.keys(labels)
+    .filter((type) => counts[type])
+    .map((type) => `${labels[type]}（${type}）${counts[type]}`)
+    .join("、")}。`;
+  const id = "2026-11-25-qa-dup-add";
+  const registerRecord = `### 2026-11-25 (HKT; fixture, not an official record)
+
+- **Type:** incident
+- **Title:** Fixture duplicate count / 測試重複筆數
+- **Official source:** Isolated test fixture. https://example.com/fixture-dup-add
+- **Summary:** This fixture is not an official record.
+- **Legal reference:** None stated.
+- **Status:** official
+
+`;
+  const zhRecord = `### 2026-11-25 (HKT; fixture, not an official record)
+
+- **Type:** incident
+- **Official Chinese title:** 測試重複筆數
+- **Official Chinese source:** https://example.com/fixture-dup-add
+- **Official Chinese summary:** 此為測試意外，不是官方事實。
+- **Legal reference (official Chinese):** 未有。
+- **ZH source status:** fetched（2026-11-20 香港時間）
+
+`;
+  const presentation = JSON.parse(production.presentation);
+  presentation.records.unshift({
+    id,
+    titleEn: "Fixture duplicate count",
+    sources: [{ title: "Fixture", site: "example.com", href: "https://example.com/fixture-dup-add" }],
+  });
+  presentation.patternGroups.find((group) => group.key === "other").ids.push(id);
+  const added = classify(production, {
+    register: production.register.replace("## Records\n", "## Records\n" + registerRecord),
+    summaries: production.summaries
+      .replace("## Records\n", "## Records\n" + zhRecord)
+      .replace(/^\*\*紀錄數目：\*\*.*$/m, `**紀錄數目：** ${duplicateProsecution(countLine)}`),
+    presentation: JSON.stringify(presentation, null, 2) + "\n",
+  }, { chartMonths: months });
+  if (plan(added) !== "draft" || added.kind === "add" || added.blocks.length) {
+    throw new Error(JSON.stringify({ kind: added.kind, plan: plan(added), blocks: added.blocks, errors: added.errors }));
+  }
+  const lastWrong = classify(production, {
+    ...production,
+    summaries: production.summaries.replace("檢控（prosecution）31", "檢控（prosecution）31、檢控（prosecution）999"),
+  }, { chartMonths: months });
+  assertKind(lastWrong, "invalid");
+  if (syncExit(plan(lastWrong)).exitCode !== 1) throw new Error(plan(lastWrong));
+});
+
 check("missing or incomplete count lines are invalid and open no pull request", () => {
   const removed = classify(production, {
     ...production,
