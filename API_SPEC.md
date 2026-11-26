@@ -116,6 +116,8 @@ node scripts/sync-classify.test.mjs
 
 `node scripts/sync-run.mjs --push` exits immediately unless `GITHUB_ACTIONS=true`. It is the entrypoint of the workflow, not a local publish command.
 
+`scripts/sync-classify.test.mjs` proves that guard by spawning `--push` with `GITHUB_ACTIONS` removed from the child. Other Actions variables, including `SNAPSHOT_SHA`, `SNAPSHOT_REF`, and `GITHUB_EVENT_NAME`, stay inherited. The child must exit non-zero with the guard's refusal, on a workstation and when `npm test` itself runs inside Actions. That spawn returns before snapshot fetch, pull requests, merge, or a Pages dispatch. The data-sync workflow still runs `--push` with `GITHUB_ACTIONS=true`.
+
 ## Implemented here vs configured in GitHub
 
 Implemented in this repository:
