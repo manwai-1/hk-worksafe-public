@@ -84,6 +84,13 @@ export function monthAxisLabel(key: string): string {
   return `${year}年${Number(month)}月`;
 }
 
+export function dateFragments(value: string): { kind: "token" | "note"; text: string }[] {
+  return value
+    .split(/(（[^）]*）)/)
+    .filter((text) => text.length > 0)
+    .map((text) => ({ kind: text.startsWith("（") && text.endsWith("）") ? "note" : "token", text }));
+}
+
 export function dateShort(datetime: string): string {
   const named = datetime.match(
     /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i,
