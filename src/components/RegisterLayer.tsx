@@ -82,7 +82,7 @@ export function RegisterLayer({
   return (
     <section id="register" className="register-layer" aria-labelledby="register-heading">
       <h2 id="register-heading">完整登記冊</h2>
-      <p className="caption">全部 85 筆官方紀錄，最新者在前。篩選只影響本頁顯示。「已更新」指本冊已加注日期更新行。</p>
+      <p className="caption">全部 {RECORDS.length} 筆官方紀錄，最新者在前。篩選只影響本頁顯示。「已更新」指本冊已加注日期更新行。</p>
       <label className="toggle">
         <input type="checkbox" checked={showEnglish} onChange={(event) => onEnglish(event.target.checked)} />
         顯示英文原文
